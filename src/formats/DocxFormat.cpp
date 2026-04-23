@@ -149,7 +149,8 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
                 if (!inCell) body += "\\pard\\ql ";
             } else if (isE) {
                 if (headingLv > 0 && !inCell) body += "\\b0\\fs22 ";
-                (inCell ? cellBuf : body) += "\\line ";
+                if (inCell) cellBuf += "\\line ";
+                else        body += "\\par\n";
                 inPara = false;
             }
         }

@@ -7,6 +7,47 @@
 #include <cstdint>
 #include "zlib.h"
 
+static const std::string kRtfHeader =
+    "{\\rtf1\\ansi\\deff2\n"
+    "{\\fonttbl\n"
+    "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
+    "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
+    "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
+    "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
+    "}\n"
+    "\\f2\\fs22\\pard\\ql\n";
+
+static std::string RtfEnc(const std::wstring& ws) {
+    std::string s;
+    s.reserve(ws.size() * 2);
+    for (wchar_t c : ws) {
+        if      (c == L'\\') s += "\\\\";
+        else if (c == L'{')  s += "\\{";
+        else if (c == L'}')  s += "\\}";
+        else if (c == L'\r') {}
+        else if (c < 128)    s += static_cast<char>(c);
+        else {
+            s += "\\u";
+            s += std::to_string(static_cast<int>(static_cast<int16_t>(c)));
+            s += "?";
+        }
+    }
+    return s;
+}
+
+static std::string TextToRtf(const std::wstring& text) {
+    std::string body;
+    std::wistringstream in(text);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        body += "\\pard\\ql ";
+        body += RtfEnc(line);
+        body += "\\par\n";
+    }
+    return kRtfHeader + body + "}";
+}
+
 // HWP 5.x uses OLE2 Compound Document Format.
 // BodyText/SectionN streams are zlib-compressed (unless FileHeader flags say otherwise).
 // Each record: 4-byte header [TagID:10 | Level:4 | Size:18]
@@ -207,8 +248,9 @@ FormatResult HwpFormat::Load(const std::wstring& path, Document& doc) {
         return r;
     }
 
-    r.content = result;
-    r.rtf     = false;
+    std::string rtf = TextToRtf(result);
+    r.content = std::wstring(rtf.begin(), rtf.end());
+    r.rtf     = true;
     r.ok      = true;
     return r;
 }
