@@ -1,5 +1,8 @@
 #pragma once
 #include <windows.h>
+// ole2.h brings in objidl.h (IStream) which WIN32_LEAN_AND_MEAN strips from
+// windows.h, but gdiplus.h requires IStream to be defined before it is included.
+#include <ole2.h>
 #include <gdiplus.h>
 
 class SplashScreen {
