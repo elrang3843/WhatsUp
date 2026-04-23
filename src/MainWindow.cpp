@@ -748,7 +748,7 @@ bool MainWindow::OpenFile(const std::wstring& path) {
         // Direct API path: no RTF generation, no EM_STREAMIN.
         // CdmNormalizer merges adjacent same-styled runs first to reduce work.
         cdm::Normalize(result.cdmDoc);
-        LoadCdmDocument(result.cdmDoc, m_editor,
+        LoadCdmDocument(result.cdmDoc, m_editor.get(),
                         Application::Instance().TextColor());
         m_editor->SetBackground(Application::Instance().BgColor());
     } else if (result.rtf) {
