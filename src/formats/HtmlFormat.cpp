@@ -2,6 +2,8 @@
 #include "TxtFormat.h"
 #include <algorithm>
 #include <sstream>
+#include <vector>
+#include <cstdint>
 
 // Reuse TxtFormat for raw file I/O
 static std::wstring ReadTextFile(const std::wstring& path) {

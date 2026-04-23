@@ -3,6 +3,8 @@
 #include <objbase.h>
 #include <objidl.h>
 #include <sstream>
+#include <vector>
+#include <cstdint>
 
 // HWP 5.x uses OLE2 Compound Document Format.
 // Text runs are in "BodyText/Section0" compressed with zlib.

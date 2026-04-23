@@ -11,7 +11,7 @@ public:
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    static void OnPaint(HWND hwnd);
+    static void OnPaint(HWND hwnd, HDC hdc);
 
     // GDI drawing helpers
     static void DrawGradientBackground(HDC hdc, const RECT& rc);

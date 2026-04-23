@@ -41,7 +41,7 @@ void SplashScreen::Show(HINSTANCE hInst, int totalMs) {
 
     // Progress timer: fire every ~28ms for ~100 steps
     int stepMs = totalMs / 100;
-    UINT timerId = SetTimer(s_hwnd, 1, stepMs > 0 ? stepMs : 28, nullptr);
+    UINT_PTR timerId = SetTimer(s_hwnd, 1, static_cast<UINT>(stepMs > 0 ? stepMs : 28), nullptr);
 
     // Message pump until splash closes
     MSG msg{};
@@ -59,7 +59,7 @@ LRESULT CALLBACK SplashScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        OnPaint(hwnd);
+        OnPaint(hwnd, hdc);
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -90,13 +90,12 @@ LRESULT CALLBACK SplashScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
 }
 
 // ---- Drawing ----
-void SplashScreen::OnPaint(HWND hwnd) {
+void SplashScreen::OnPaint(HWND hwnd, HDC hdc) {
     RECT rc;
     GetClientRect(hwnd, &rc);
     int w = rc.right, h = rc.bottom;
 
     // Double-buffer
-    HDC hdc      = GetDC(hwnd);
     HDC memDC    = CreateCompatibleDC(hdc);
     HBITMAP hBmp = CreateCompatibleBitmap(hdc, w, h);
     SelectObject(memDC, hBmp);
@@ -169,7 +168,6 @@ void SplashScreen::OnPaint(HWND hwnd) {
     BitBlt(hdc, 0, 0, w, h, memDC, 0, 0, SRCCOPY);
     DeleteObject(hBmp);
     DeleteDC(memDC);
-    ReleaseDC(hwnd, hdc);
 }
 
 void SplashScreen::DrawGradientBackground(HDC hdc, const RECT& rc) {
@@ -233,7 +231,6 @@ void SplashScreen::DrawGear(HDC hdc, int cx, int cy, int outerR, int innerR, int
 void SplashScreen::DrawLogoIcon(HDC hdc, int cx, int cy, int size) {
     int outerR  = size / 2;
     int innerR  = static_cast<int>(outerR * 0.82);
-    int holeR   = static_cast<int>(outerR * 0.28);
 
     // Gear body
     HBRUSH gearBrush = CreateSolidBrush(RGB(25, 55, 110));

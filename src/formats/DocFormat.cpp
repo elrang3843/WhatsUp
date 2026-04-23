@@ -3,6 +3,8 @@
 #include <objbase.h>
 #include <objidl.h>
 #include <sstream>
+#include <vector>
+#include <cstdint>
 
 // DOC format uses OLE2 Compound Document.
 // The main text is in the "WordDocument" stream.

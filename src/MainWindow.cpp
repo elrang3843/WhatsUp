@@ -275,17 +275,17 @@ void MainWindow::CreateToolbars() {
     SendMessageW(m_hwndStdTb, TB_ADDBITMAP, 0, reinterpret_cast<LPARAM>(&ab));
 
     TBBUTTON stdBtns[] = {
-        {STD_FILENEW,   ID_FILE_NEW,   TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {STD_FILEOPEN,  ID_FILE_OPEN,  TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {STD_FILESAVE,  ID_FILE_SAVE,  TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {STD_PRINT,     ID_FILE_PRINT, TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {STD_UNDO,      ID_EDIT_UNDO,  TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {STD_REDOW,     ID_EDIT_REDO,  TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {STD_CUT,       ID_EDIT_CUT,   TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {STD_COPY,      ID_EDIT_COPY,  TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {STD_PASTE,     ID_EDIT_PASTE, TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
+        {STD_FILENEW,   ID_FILE_NEW,   (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {STD_FILEOPEN,  ID_FILE_OPEN,  (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {STD_FILESAVE,  ID_FILE_SAVE,  (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {STD_PRINT,     ID_FILE_PRINT, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {0, 0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {STD_UNDO,      ID_EDIT_UNDO,  (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {STD_REDOW,     ID_EDIT_REDO,  (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {0, 0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {STD_CUT,       ID_EDIT_CUT,   (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {STD_COPY,      ID_EDIT_COPY,  (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
+        {STD_PASTE,     ID_EDIT_PASTE, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON, {}, 0, 0},
     };
     SendMessageW(m_hwndStdTb, TB_ADDBUTTONSW,
                  ARRAYSIZE(stdBtns), reinterpret_cast<LPARAM>(stdBtns));
@@ -353,26 +353,26 @@ void MainWindow::CreateToolbars() {
 
     // Placeholder space for combos (276px)
     TBBUTTON fmtBtns[] = {
-        {-1, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 276, 0}, // space for combos
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {0,  ID_FORMAT_BOLD,        TBSTATE_ENABLED, BTNS_CHECK,  {}, 0, 0},
-        {1,  ID_FORMAT_ITALIC,      TBSTATE_ENABLED, BTNS_CHECK,  {}, 0, 0},
-        {2,  ID_FORMAT_UNDERLINE,   TBSTATE_ENABLED, BTNS_CHECK,  {}, 0, 0},
-        {3,  ID_FORMAT_STRIKEOUT,   TBSTATE_ENABLED, BTNS_CHECK,  {}, 0, 0},
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {4,  ID_PARA_ALIGN_LEFT,    TBSTATE_ENABLED, BTNS_CHECKGROUP, {}, 0, 0},
-        {5,  ID_PARA_ALIGN_CENTER,  TBSTATE_ENABLED, BTNS_CHECKGROUP, {}, 0, 0},
-        {6,  ID_PARA_ALIGN_RIGHT,   TBSTATE_ENABLED, BTNS_CHECKGROUP, {}, 0, 0},
-        {7,  ID_PARA_ALIGN_JUSTIFY, TBSTATE_ENABLED, BTNS_CHECKGROUP, {}, 0, 0},
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {8,  ID_PARA_INDENT,        TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {9,  ID_PARA_OUTDENT,       TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {10, ID_PARA_BULLET,        TBSTATE_ENABLED, BTNS_CHECK,  {}, 0, 0},
-        {11, ID_PARA_NUMBERING,     TBSTATE_ENABLED, BTNS_CHECK,  {}, 0, 0},
-        {0, 0, TBSTATE_ENABLED, BTNS_SEP, {}, 0, 0},
-        {12, ID_FORMAT_FONTCOLOR,   TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
-        {13, ID_FORMAT_BGCOLOR,     TBSTATE_ENABLED, BTNS_BUTTON, {}, 0, 0},
+        {276, 0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0}, // space for combos
+        {0,  0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {0,  ID_FORMAT_BOLD,        (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECK,       {}, 0, 0},
+        {1,  ID_FORMAT_ITALIC,      (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECK,       {}, 0, 0},
+        {2,  ID_FORMAT_UNDERLINE,   (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECK,       {}, 0, 0},
+        {3,  ID_FORMAT_STRIKEOUT,   (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECK,       {}, 0, 0},
+        {0,  0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {4,  ID_PARA_ALIGN_LEFT,    (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECKGROUP,  {}, 0, 0},
+        {5,  ID_PARA_ALIGN_CENTER,  (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECKGROUP,  {}, 0, 0},
+        {6,  ID_PARA_ALIGN_RIGHT,   (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECKGROUP,  {}, 0, 0},
+        {7,  ID_PARA_ALIGN_JUSTIFY, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECKGROUP,  {}, 0, 0},
+        {0,  0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {8,  ID_PARA_INDENT,        (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON,      {}, 0, 0},
+        {9,  ID_PARA_OUTDENT,       (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON,      {}, 0, 0},
+        {0,  0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {10, ID_PARA_BULLET,        (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECK,       {}, 0, 0},
+        {11, ID_PARA_NUMBERING,     (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_CHECK,       {}, 0, 0},
+        {0,  0, (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_SEP, {}, 0, 0},
+        {12, ID_FORMAT_FONTCOLOR,   (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON,      {}, 0, 0},
+        {13, ID_FORMAT_BGCOLOR,     (BYTE)TBSTATE_ENABLED, (BYTE)BTNS_BUTTON,      {}, 0, 0},
     };
     SendMessageW(m_hwndFmtTb, TB_ADDBUTTONSW,
                  ARRAYSIZE(fmtBtns), reinterpret_cast<LPARAM>(fmtBtns));
@@ -385,18 +385,18 @@ void MainWindow::CreateToolbars() {
     rbi.fMask   = RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_STYLE | RBBIM_SIZE;
     rbi.fStyle  = RBBS_CHILDEDGE | RBBS_NOGRIPPER;
     rbi.hwndChild = m_hwndStdTb;
-    RECT rcStd{}; SendMessageW(m_hwndStdTb, TB_GETBOUNDINGRECT, 0,
-                               reinterpret_cast<LPARAM>(&rcStd));
-    rbi.cyChild = rcStd.bottom; rbi.cyMinChild = rcStd.bottom;
-    rbi.cx      = rcStd.right;
+    SIZE szStd{}; SendMessageW(m_hwndStdTb, TB_GETMAXSIZE, 0,
+                               reinterpret_cast<LPARAM>(&szStd));
+    rbi.cyChild = szStd.cy; rbi.cyMinChild = szStd.cy;
+    rbi.cx      = szStd.cx;
     SendMessageW(m_hwndRebar, RB_INSERTBANDW, static_cast<WPARAM>(-1),
                  reinterpret_cast<LPARAM>(&rbi));
 
-    RECT rcFmt{}; SendMessageW(m_hwndFmtTb, TB_GETBOUNDINGRECT, 0,
-                               reinterpret_cast<LPARAM>(&rcFmt));
+    SIZE szFmt{}; SendMessageW(m_hwndFmtTb, TB_GETMAXSIZE, 0,
+                               reinterpret_cast<LPARAM>(&szFmt));
     rbi.hwndChild  = m_hwndFmtTb;
-    rbi.cyChild    = rcFmt.bottom; rbi.cyMinChild = rcFmt.bottom;
-    rbi.cx         = rcFmt.right;
+    rbi.cyChild    = szFmt.cy; rbi.cyMinChild = szFmt.cy;
+    rbi.cx         = szFmt.cx;
     SendMessageW(m_hwndRebar, RB_INSERTBANDW, static_cast<WPARAM>(-1),
                  reinterpret_cast<LPARAM>(&rbi));
 }

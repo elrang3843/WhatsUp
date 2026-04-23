@@ -344,7 +344,7 @@ void Editor::Indent(int direction) {
     fmt.cbSize = sizeof(fmt);
     SendMessageW(m_hwnd, EM_GETPARAFORMAT, 0, reinterpret_cast<LPARAM>(&fmt));
     fmt.dwMask = PFM_STARTINDENT;
-    fmt.dxStartIndent = std::max(0, fmt.dxStartIndent + direction * 720);
+    fmt.dxStartIndent = std::max(0L, fmt.dxStartIndent + static_cast<LONG>(direction * 720));
     SendMessageW(m_hwnd, EM_SETPARAFORMAT, 0, reinterpret_cast<LPARAM>(&fmt));
 }
 

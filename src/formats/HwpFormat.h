@@ -1,5 +1,7 @@
 #pragma once
 #include "IDocumentFormat.h"
+#include <vector>
+#include <cstdint>
 
 // HWP 5.x binary format — read-only text extraction
 // Full HWP support requires the HWP5 SDK or reverse-engineered spec
