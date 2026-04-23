@@ -11,6 +11,8 @@ public:
     bool CanWrite() const override { return true; }
 
 private:
-    // Convert Markdown to plain readable text (strip formatting markers)
-    static std::wstring MdToPlain(const std::wstring& md);
+    // Convert Markdown source to RTF (headings, bold, italic, code)
+    static std::string MdToRtf(const std::wstring& md);
+    // Convert inline Markdown spans to RTF
+    static std::string InlineToRtf(const std::wstring& line);
 };

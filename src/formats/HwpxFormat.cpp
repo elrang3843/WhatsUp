@@ -1,6 +1,27 @@
 #include "HwpxFormat.h"
 #include "ZipReader.h"
 #include <sstream>
+#include <algorithm>
+
+// Case-insensitive ZIP entry lookup — real HWPX files vary in capitalization
+static std::string FindEntryCI(const ZipReader& zip, const std::string& name) {
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    for (auto& [key, _] : zip.Entries()) {
+        std::string klower = key;
+        std::transform(klower.begin(), klower.end(), klower.begin(), ::tolower);
+        if (klower == lower) return key;
+    }
+    return {};
+}
+
+static bool HasEntryCI(const ZipReader& zip, const std::string& name) {
+    return !FindEntryCI(zip, name).empty();
+}
+static std::wstring ExtractWideCI(ZipReader& zip, const std::string& name) {
+    std::string real = FindEntryCI(zip, name);
+    return real.empty() ? std::wstring{} : zip.ExtractWide(real);
+}
 
 static std::wstring XmlTagW(const std::wstring& xml, const std::wstring& tag) {
     auto open  = L"<" + tag + L">";
@@ -137,10 +158,10 @@ FormatResult HwpxFormat::Load(const std::wstring& path, Document& doc) {
         return r;
     }
 
-    // Try reading summary info
+    // Try reading summary info (case-insensitive)
     for (const char* s : { "Contents/summary.xml", "Summary.xml", "Contents/Summary.xml" }) {
-        if (zip.HasEntry(s)) {
-            std::wstring sumXml = zip.ExtractWide(s);
+        if (HasEntryCI(zip, s)) {
+            std::wstring sumXml = ExtractWideCI(zip, s);
             doc.Properties().title   = XmlTagW(sumXml, L"hsp:Title");
             doc.Properties().author  = XmlTagW(sumXml, L"hsp:Author");
             doc.Properties().subject = XmlTagW(sumXml, L"hsp:Subject");
@@ -152,12 +173,24 @@ FormatResult HwpxFormat::Load(const std::wstring& path, Document& doc) {
         }
     }
 
-    // Find section files in Contents/Sections/
+    // Find section files — try several path patterns with case-insensitive matching
     std::wostringstream combined;
     for (int i = 0; i < 100; ++i) {
-        std::string sname = "Contents/Sections/Section" + std::to_string(i) + ".xml";
-        if (!zip.HasEntry(sname)) break;
-        std::wstring sxml = zip.ExtractWide(sname);
+        std::string found;
+        // Try common path variants for section files
+        for (const char* fmt : {
+                "Contents/Sections/Section%d.xml",
+                "Contents/sections/section%d.xml",
+                "BodyText/Section%d.xml",
+                "bodytext/section%d.xml",
+                "Contents/section%d.xml" }) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), fmt, i);
+            std::string real = FindEntryCI(zip, buf);
+            if (!real.empty()) { found = real; break; }
+        }
+        if (found.empty()) break;
+        std::wstring sxml = zip.ExtractWide(found);
         combined << ParseBodyText(sxml);
     }
 

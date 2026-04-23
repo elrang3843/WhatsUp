@@ -6,11 +6,11 @@
 #include <vector>
 #include <cstdint>
 
-// DOC format uses OLE2 Compound Document.
-// The main text is in the "WordDocument" stream.
-// The File Information Block (FIB) at offset 0 contains fcMin and fcMac (text range).
-// Text content starts at fcMin as UTF-16LE characters (for Word97+ Unicode docs).
-// This is a simplified extractor — only handles Unicode text content.
+// DOC format: OLE2 Compound Document (Word 97-2003).
+// Text is located via the Clx (piece table) stored in the 1Table/0Table stream.
+// FIB field fcClx is at offset 418 in the WordDocument stream (FibRgFcLcb97[33]).
+// Each piece descriptor (PCD) has an FcCompressed field: bit 30 = isAnsi,
+// lower 30 bits = byte offset in WordDocument (divide by 2 when isAnsi).
 
 static std::vector<uint8_t> ReadOleStream(const std::wstring& path,
                                           const wchar_t* streamName) {
@@ -50,38 +50,83 @@ static uint16_t LE16(const uint8_t* p) {
 }
 
 std::wstring DocFormat_::ExtractText(const std::wstring& path) {
-    // Read WordDocument stream
-    auto wdStream = ReadOleStream(path, L"WordDocument");
-    if (wdStream.size() < 0x20) return {};
+    auto wd = ReadOleStream(path, L"WordDocument");
+    if (wd.size() < 426) return {};
 
-    // FIB: check magic (Word 97+ = 0xA5EC or 0xA5DC)
-    uint16_t magic = LE16(wdStream.data());
+    uint16_t magic = LE16(wd.data());
     if (magic != 0xA5EC && magic != 0xA5DC) return {};
 
-    // FIB fields (offsets per MS-DOC spec)
-    // fcMin: byte offset of main text in 1Table/0Table stream (0=ANSI, 1=Unicode)
-    // fib.base: 32 bytes, fib.fibRgW97 starts at 32
-    // For simplified extraction: read all WCHAR from the 1Table "main text" piece
-    // Actually, text content for Word97+ unicode is directly in the document text range.
+    // FIB offset 10-11: flags; bit 9 (0x0200) = fWhichTblStm (0=0Table, 1=1Table)
+    uint16_t flags = LE16(wd.data() + 10);
+    bool useTable1 = (flags & 0x0200) != 0;
 
-    // Read 1Table stream for piece table (Clx)
-    bool useUnicode = (wdStream.size() > 10) && ((wdStream[10] & 0x80) != 0);
-    auto tblStream = ReadOleStream(path, useUnicode ? L"1Table" : L"0Table");
+    // Clx location: FibRgFcLcb97 starts at 154; entry [33] = Clx → offset 154 + 33*8 = 418
+    uint32_t fcClx  = LE32(wd.data() + 418);
+    uint32_t lcbClx = LE32(wd.data() + 422);
+    if (lcbClx == 0) return {};
 
-    // A very simplified approach: scan WordDocument for plausible Unicode text
-    // (handles most simple documents correctly)
+    auto tbl = ReadOleStream(path, useTable1 ? L"1Table" : L"0Table");
+    if (fcClx + lcbClx > tbl.size()) return {};
+
+    const uint8_t* clx    = tbl.data() + fcClx;
+    size_t         clxPos = 0;
+
+    // Skip grpprl entries (type byte 0x01)
+    while (clxPos < lcbClx && clx[clxPos] == 0x01) {
+        clxPos++;
+        if (clxPos + 2 > lcbClx) return {};
+        uint16_t cb = LE16(clx + clxPos);
+        clxPos += 2 + cb;
+    }
+
+    // Piece table entry must start with type byte 0x02
+    if (clxPos >= lcbClx || clx[clxPos] != 0x02) return {};
+    clxPos++;
+    if (clxPos + 4 > lcbClx) return {};
+    uint32_t lcbPcd = LE32(clx + clxPos);
+    clxPos += 4;
+    if (lcbPcd < 4 || clxPos + lcbPcd > lcbClx) return {};
+
+    // PlcfPcd: (n+1) CP values (4 bytes each) + n PCD values (8 bytes each)
+    // 4*(n+1) + 8*n = lcbPcd  →  n = (lcbPcd - 4) / 12
+    uint32_t nPieces = (lcbPcd - 4) / 12;
+    if (nPieces == 0) return {};
+
+    const uint8_t* pCPs  = clx + clxPos;
+    const uint8_t* pPCDs = pCPs + (nPieces + 1) * 4;
+
     std::wostringstream out;
-    const uint8_t* d = wdStream.data();
-    size_t sz = wdStream.size();
+    for (uint32_t i = 0; i < nPieces; i++) {
+        uint32_t cpStart = LE32(pCPs + i * 4);
+        uint32_t cpEnd   = LE32(pCPs + (i + 1) * 4);
+        if (cpEnd <= cpStart) continue;
+        uint32_t nCh = cpEnd - cpStart;
 
-    // Try to find text using FIB: fcPlcfBtePapx gives paragraph positions
-    // For simplicity, scan the stream for printable Unicode runs
-    for (size_t i = 512; i + 1 < sz; i += 2) {
-        wchar_t ch = static_cast<wchar_t>(d[i]) | (static_cast<wchar_t>(d[i + 1]) << 8);
-        if (ch == 0x0D) { out << L'\n'; continue; }
-        if (ch == 0x07) { out << L'\t'; continue; } // table cell
-        if (ch >= 0x20 && ch < 0xFFFE) out << ch;
-        else if (ch == 0x09) out << L'\t';
+        // PCD: 2-byte flags | 4-byte FcCompressed | 2-byte prm
+        const uint8_t* pcd = pPCDs + i * 8;
+        uint32_t fcRaw  = LE32(pcd + 2);
+        bool isAnsi     = (fcRaw & 0x40000000) != 0; // bit 30
+        uint32_t fc     = fcRaw & 0x3FFFFFFF;
+        uint32_t off    = isAnsi ? fc / 2 : fc;
+
+        if (isAnsi) {
+            if (off + nCh > wd.size()) continue;
+            for (uint32_t j = 0; j < nCh; j++) {
+                uint8_t c = wd[off + j];
+                if      (c == 0x0D)              out << L'\n';
+                else if (c == 0x07 || c == 0x09) out << L'\t';
+                else if (c >= 0x20)              out << static_cast<wchar_t>(c);
+            }
+        } else {
+            if (off + (uint64_t)nCh * 2 > wd.size()) continue;
+            for (uint32_t j = 0; j < nCh; j++) {
+                wchar_t ch = static_cast<wchar_t>(wd[off + j * 2])
+                           | (static_cast<wchar_t>(wd[off + j * 2 + 1]) << 8);
+                if      (ch == 0x0D)                    out << L'\n';
+                else if (ch == 0x07 || ch == 0x09)      out << L'\t';
+                else if (ch >= 0x20 && ch < 0xFFFE)     out << ch;
+            }
+        }
     }
     return out.str();
 }
