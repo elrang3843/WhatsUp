@@ -104,9 +104,9 @@ void SplashScreen::OnPaint(HWND hwnd, HDC hdc) {
     int cx = w / 2, cy = h / 2 - 80;   // 200 when h=560
 
     // Glow
-    DrawGlowCircle(memDC, cx, cy, 120);
+    DrawGlowCircle(memDC, cx, cy, 90);
 
-    // Gear logo
+    // Document + pencil logo
     DrawLogoIcon(memDC, cx, cy, 200);
 
     // "What's Up" title  [cy+120 .. cy+180]
@@ -124,11 +124,20 @@ void SplashScreen::OnPaint(HWND hwnd, HDC hdc) {
                                   CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                   DEFAULT_PITCH, L"Segoe UI");
     RECT rcSub{ 0, cy + 184, w, cy + 210 };
-    DrawText_(memDC, L"TEXT EDITOR", hSubFont, RGB(200, 220, 255), rcSub, DT_CENTER | DT_SINGLELINE);
+    DrawText_(memDC, L"TEXT EDITOR", hSubFont, RGB(126, 184, 255), rcSub, DT_CENTER | DT_SINGLELINE);
 
-    // "Open Source · Handtech"  [cy+214 .. cy+238]
-    RECT rcBrand{ 0, cy + 214, w, cy + 238 };
-    DrawText_(memDC, L"Open Source  ·  Handtech", hSubFont, RGB(130, 170, 230), rcBrand, DT_CENTER | DT_SINGLELINE);
+    // Divider line (matches SVG: 136px wide, 3px tall, #4a90d9)
+    {
+        int dw = 68, dy = cy + 213;
+        HBRUSH divBr = CreateSolidBrush(RGB(74, 144, 217));
+        RECT divRc{ w/2 - dw, dy, w/2 + dw, dy + 3 };
+        FillRect(memDC, &divRc, divBr);
+        DeleteObject(divBr);
+    }
+
+    // "Open Source · Handtech"  [cy+218 .. cy+240]
+    RECT rcBrand{ 0, cy + 218, w, cy + 240 };
+    DrawText_(memDC, L"Open Source  \xB7  Handtech", hSubFont, RGB(74, 106, 154), rcBrand, DT_CENTER | DT_SINGLELINE);
     DeleteObject(hSubFont);
 
     // Progress bar
@@ -209,99 +218,74 @@ void SplashScreen::DrawGlowCircle(HDC hdc, int cx, int cy, int r) {
     }
 }
 
-// Draw a gear shape using polygon
-void SplashScreen::DrawGear(HDC hdc, int cx, int cy, int outerR, int innerR, int teeth) {
-    const int pts = teeth * 4;
-    std::vector<POINT> poly(pts);
-    for (int i = 0; i < pts; ++i) {
-        double angle = 2.0 * M_PI * i / pts;
-        // Alternate between tooth tip and root
-        bool tip = (i % 4 == 1 || i % 4 == 2);
-        int  r   = tip ? outerR : innerR;
-        // Slight offset for square teeth
-        double a = angle + (i % 4 >= 2 ? M_PI / pts : 0);
-        poly[i].x = cx + static_cast<int>(r * cos(a));
-        poly[i].y = cy + static_cast<int>(r * sin(a));
-    }
-    Polygon(hdc, poly.data(), pts);
-}
-
+// Document + pencil icon matching the SVG design.
+// SVG reference: icon center (256,190) in 512×512; we scale to 'size' pixels.
 void SplashScreen::DrawLogoIcon(HDC hdc, int cx, int cy, int size) {
-    int outerR  = size / 2;
-    int innerR  = static_cast<int>(outerR * 0.82);
+    float s = size / 200.0f;
 
-    // Gear body
-    HBRUSH gearBrush = CreateSolidBrush(RGB(25, 55, 110));
-    HPEN   gearPen   = CreatePen(PS_SOLID, 2, RGB(50, 100, 180));
-    SelectObject(hdc, gearBrush);
-    SelectObject(hdc, gearPen);
-    DrawGear(hdc, cx, cy, outerR, innerR, 16);
-    DeleteObject(gearBrush);
-    DeleteObject(gearPen);
+    // ── Document (rounded-rect outline, dark fill, 3 lines) ──────────────────
+    // SVG coords relative to icon centre: x∈[-58,58], y∈[-65,33], rx=11
+    int dl = cx - (int)(58*s + 0.5f), dr = cx + (int)(58*s + 0.5f);
+    int dt = cy - (int)(65*s + 0.5f), db = cy + (int)(33*s + 0.5f);
+    int drx = (int)(22*s + 0.5f);  // RoundRect takes diameter
 
-    // Inner circle (darker)
-    HBRUSH innerBr = CreateSolidBrush(RGB(12, 30, 70));
-    HPEN   innerPn = CreatePen(PS_SOLID, 1, RGB(40, 80, 160));
-    SelectObject(hdc, innerBr);
-    SelectObject(hdc, innerPn);
-    int ir = static_cast<int>(outerR * 0.66);
-    Ellipse(hdc, cx - ir, cy - ir, cx + ir, cy + ir);
-    DeleteObject(innerBr);
-    DeleteObject(innerPn);
+    HBRUSH docBg  = CreateSolidBrush(RGB(8, 20, 50));
+    HPEN   docPen = CreatePen(PS_SOLID, std::max(1, (int)(5*s + 0.5f)), RGB(106, 174, 255));
+    SelectObject(hdc, docBg);
+    SelectObject(hdc, docPen);
+    RoundRect(hdc, dl, dt, dr, db, drx, drx);
+    DeleteObject(docBg);
+    DeleteObject(docPen);
 
-    // "T" shape (Handtech logo silhouette) — two dark rounded rectangles
-    HBRUSH tBrush = CreateSolidBrush(RGB(8, 20, 55));
-    SelectObject(hdc, tBrush);
-    SelectObject(hdc, GetStockObject(NULL_PEN));
-    int tw = static_cast<int>(outerR * 0.50);
-    int th = static_cast<int>(outerR * 0.08);
-    int tv = static_cast<int>(outerR * 0.36);
-    // Horizontal bar of T
-    RECT rtH{ cx - tw/2, cy - th/2, cx + tw/2, cy + th/2 };
-    FillRect(hdc, &rtH, tBrush);
-    // Vertical bar of T
-    RECT rtV{ cx - static_cast<int>(outerR*0.09), cy + th/2,
-              cx + static_cast<int>(outerR*0.09), cy + th/2 + tv };
-    FillRect(hdc, &rtV, tBrush);
-    DeleteObject(tBrush);
+    // Three horizontal lines (SVG: opacity 0.75, stroke-width 4.5)
+    int lw  = std::max(1, (int)(4.5f*s + 0.5f));
+    HPEN lp = CreatePen(PS_SOLID, lw, RGB(106, 174, 255));
+    SelectObject(hdc, lp);
+    int lx1 = cx - (int)(38*s + 0.5f), lx2 = cx + (int)(38*s + 0.5f);
+    int lx3 = cx + (int)(10*s + 0.5f);          // line 3 is shorter
+    int lys[3] = { cy - (int)(40*s + 0.5f),
+                   cy - (int)(18*s + 0.5f),
+                   cy + (int)( 5*s + 0.5f) };
+    MoveToEx(hdc, lx1, lys[0], nullptr); LineTo(hdc, lx2, lys[0]);
+    MoveToEx(hdc, lx1, lys[1], nullptr); LineTo(hdc, lx2, lys[1]);
+    MoveToEx(hdc, lx1, lys[2], nullptr); LineTo(hdc, lx3, lys[2]);
+    DeleteObject(lp);
 
-    // Document icon (light blue square with lines)
-    int docX = cx - static_cast<int>(outerR * 0.22);
-    int docY = cy - static_cast<int>(outerR * 0.42);
-    int docW = static_cast<int>(outerR * 0.38);
-    int docH = static_cast<int>(outerR * 0.44);
-    HBRUSH docBr = CreateSolidBrush(RGB(50, 100, 190));
-    HPEN   docPn = CreatePen(PS_SOLID, 1, RGB(80, 150, 230));
-    SelectObject(hdc, docBr); SelectObject(hdc, docPn);
-    RoundRect(hdc, docX, docY, docX + docW, docY + docH, 6, 6);
-    DeleteObject(docBr); DeleteObject(docPn);
+    // ── Pencil (rotated -42°, translated to icon-relative (30,28)) ───────────
+    // cos(-42°) ≈ 0.7431, sin(-42°) ≈ -0.6691
+    float px  = cx + 30.0f * s, py  = cy + 28.0f * s;
+    float ca  = 0.7431f,        sa  = -0.6691f;
 
-    // Lines on document
-    HPEN linePen = CreatePen(PS_SOLID, 2, RGB(160, 200, 255));
-    SelectObject(hdc, linePen);
-    int lx1 = docX + 5, lx2 = docX + docW - 5;
-    for (int li = 0; li < 3; ++li) {
-        int ly = docY + 8 + li * 9;
-        MoveToEx(hdc, lx1, ly, nullptr);
-        LineTo(hdc, lx2 - (li == 2 ? docW/3 : 0), ly);
-    }
-    DeleteObject(linePen);
+    // Rotate local pencil point (lx,ry) and map to screen
+    auto rot = [&](float lx, float ry) -> POINT {
+        return { (LONG)(lx * ca - ry * sa + px + 0.5f),
+                 (LONG)(lx * sa + ry * ca + py + 0.5f) };
+    };
 
-    // Pencil icon (yellow-orange diagonal)
-    HPEN pencilPen   = CreatePen(PS_SOLID, 5, RGB(240, 160, 30));
-    HPEN pencilTip   = CreatePen(PS_SOLID, 3, RGB(200, 80, 20));
-    SelectObject(hdc, pencilPen);
-    int px1 = cx + static_cast<int>(outerR * 0.08);
-    int py1 = cy - static_cast<int>(outerR * 0.05);
-    int px2 = cx - static_cast<int>(outerR * 0.12);
-    int py2 = cy + static_cast<int>(outerR * 0.28);
-    MoveToEx(hdc, px1, py1, nullptr);
-    LineTo(hdc, px2, py2);
-    SelectObject(hdc, pencilTip);
-    MoveToEx(hdc, px2, py2, nullptr);
-    LineTo(hdc, px2 - 4, py2 + 6);
-    DeleteObject(pencilPen);
-    DeleteObject(pencilTip);
+    float pw  =  7.0f * s;   // half-width of pencil shaft
+    float pbt = -32.0f * s;  // body top
+    float pbb =  18.0f * s;  // body bottom  (= tip base)
+    float ptt =  34.0f * s;  // tip apex
+    float pet = -41.0f * s;  // eraser top
+    float peb = -31.0f * s;  // eraser bottom (= body top - 1px gap)
+
+    HPEN noPen = (HPEN)GetStockObject(NULL_PEN);
+    SelectObject(hdc, noPen);
+
+    // Eraser cap (light gray)
+    { POINT p[4] = { rot(-pw, pet), rot(pw, pet), rot(pw, peb), rot(-pw, peb) };
+      HBRUSH br = CreateSolidBrush(RGB(192, 192, 200));
+      SelectObject(hdc, br); Polygon(hdc, p, 4); DeleteObject(br); }
+
+    // Pencil body (golden yellow)
+    { POINT p[4] = { rot(-pw, pbt), rot(pw, pbt), rot(pw, pbb), rot(-pw, pbb) };
+      HBRUSH br = CreateSolidBrush(RGB(255, 209, 102));
+      SelectObject(hdc, br); Polygon(hdc, p, 4); DeleteObject(br); }
+
+    // Pencil tip (orange triangle)
+    { POINT p[3] = { rot(-pw, pbb), rot(pw, pbb), rot(0, ptt) };
+      HBRUSH br = CreateSolidBrush(RGB(240, 160, 32));
+      SelectObject(hdc, br); Polygon(hdc, p, 3); DeleteObject(br); }
 }
 
 void SplashScreen::DrawProgressBar(HDC hdc, const RECT& rc, float pct) {

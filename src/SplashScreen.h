@@ -16,7 +16,6 @@ private:
     // GDI drawing helpers
     static void DrawGradientBackground(HDC hdc, const RECT& rc);
     static void DrawGlowCircle(HDC hdc, int cx, int cy, int r);
-    static void DrawGear(HDC hdc, int cx, int cy, int outerR, int innerR, int teeth);
     static void DrawLogoIcon(HDC hdc, int cx, int cy, int size);
     static void DrawProgressBar(HDC hdc, const RECT& rc, float pct);
     static void DrawText_(HDC hdc, const wchar_t* text, HFONT hfont,
