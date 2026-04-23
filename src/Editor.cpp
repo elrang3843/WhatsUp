@@ -13,14 +13,18 @@ Editor::Editor()  = default;
 Editor::~Editor() { Destroy(); }
 
 bool Editor::Create(HWND hwndParent, UINT controlId) {
-    // Load Microsoft Rich Edit 4.1 / 5.0
+    // Msftedit.dll registers "RICHEDIT50W"; Riched20.dll registers "RichEdit20W".
+    // Must match the class name to the DLL that was actually loaded.
     m_hRichEd = LoadLibraryW(L"Msftedit.dll");
-    if (!m_hRichEd)
-        m_hRichEd = LoadLibraryW(L"Riched20.dll"); // fallback to 2.0
+    const wchar_t* editClass = MSFTEDIT_CLASS; // L"RICHEDIT50W"
+    if (!m_hRichEd) {
+        m_hRichEd  = LoadLibraryW(L"Riched20.dll");
+        editClass  = RICHEDIT_CLASS; // L"RichEdit20W"
+    }
 
     m_hwnd = CreateWindowExW(
         WS_EX_CLIENTEDGE,
-        RICHEDIT_CLASS,      // L"RichEdit50W" if Msftedit loaded; RICHEDIT_CLASS covers both
+        editClass,
         nullptr,
         WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL
         | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL
