@@ -65,9 +65,20 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         s_instance  = self2;
         self2->m_hwnd = hwnd;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self2));
-        if (!self2->OnCreate(hwnd, reinterpret_cast<CREATESTRUCTW*>(lParam)->hInstance))
-            return -1;
-        return 0;
+        bool ok = false;
+        __try {
+            ok = self2->OnCreate(hwnd,
+                     reinterpret_cast<CREATESTRUCTW*>(lParam)->hInstance);
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER) {
+            wchar_t buf[256];
+            swprintf_s(buf, _countof(buf),
+                L"OnCreate 중 예외 발생 (코드: 0x%08lX)\n"
+                L"GetLastError: %lu",
+                GetExceptionCode(), GetLastError());
+            MessageBoxW(nullptr, buf, L"WhatsUp 치명적 오류", MB_OK | MB_ICONERROR);
+        }
+        return ok ? 0 : -1;
     }
     case WM_APP + 1:
         // Deferred editor init: RichEdit DLL's D2D thread must complete
@@ -127,29 +138,33 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 // OnCreate
 // ─────────────────────────────────────────────
 bool MainWindow::OnCreate(HWND hwnd, HINSTANCE hInst) {
-    m_doc   = std::make_unique<Document>();
-    m_editor= std::make_unique<Editor>();
-    m_spell = std::make_unique<SpellChecker>();
-    m_ac    = std::make_unique<AutoComplete>();
+#define WU_LOG(s) OutputDebugStringW(L"[WhatsUp] " s L"\n")
+    WU_LOG("OnCreate start");
+    m_doc   = std::make_unique<Document>();   WU_LOG("Document OK");
+    m_editor= std::make_unique<Editor>();      WU_LOG("Editor obj OK");
+    m_spell = std::make_unique<SpellChecker>(); WU_LOG("SpellChecker OK");
+    m_ac    = std::make_unique<AutoComplete>(); WU_LOG("AutoComplete OK");
 
-    // Editor::Create() is deferred to WM_APP+1 (posted below) so that
-    // msftedit.dll's internal D2D initialisation thread has time to
-    // complete before we call CreateWindowExW for the RichEdit control.
-    BuildMenu();
-    CreateToolbars();
-    CreateStatusBar();
-    PopulateFontCombo();
-    PopulateSizeCombo();
+    // Editor::Create() is deferred to WM_APP+1 so msftedit.dll's D2D
+    // init thread has completed before CreateWindowExW is called.
+
+    WU_LOG("BuildMenu...");       BuildMenu();
+    WU_LOG("CreateToolbars...");  CreateToolbars();
+    WU_LOG("CreateStatusBar..."); CreateStatusBar();
+    WU_LOG("PopulateFontCombo..."); PopulateFontCombo();
+    WU_LOG("PopulateSizeCombo..."); PopulateSizeCombo();
 
     auto& s = Application::Instance().Settings();
-    m_spell->SetLanguage(s.spellLanguage);
+    m_spell->SetLanguage(s.spellLanguage); WU_LOG("SetLanguage OK");
 
-    ApplyTheme();
-    UpdateTitleBar();
-    UpdateStatusBar();
+    WU_LOG("ApplyTheme...");     ApplyTheme();
+    WU_LOG("UpdateTitleBar..."); UpdateTitleBar();
+    WU_LOG("UpdateStatusBar..."); UpdateStatusBar();
+
     m_fullyCreated = true;
-
     PostMessageW(hwnd, WM_APP + 1, 0, 0);
+    WU_LOG("OnCreate done -> return true");
+#undef WU_LOG
     return true;
 }
 
@@ -975,10 +990,12 @@ void MainWindow::ShowAbout() { AboutDialog::Show(m_hwnd); }
 // Theme
 // ─────────────────────────────────────────────
 void MainWindow::ApplyTheme() {
-    m_editor->SetBackground(Application::Instance().BgColor());
-    CharFormat cf{};
-    cf.textColor = Application::Instance().TextColor();
-    m_editor->ApplyCharFormat(cf, false);
+    if (m_editor && m_editor->GetHwnd()) {
+        m_editor->SetBackground(Application::Instance().BgColor());
+        CharFormat cf{};
+        cf.textColor = Application::Instance().TextColor();
+        m_editor->ApplyCharFormat(cf, false);
+    }
     InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
@@ -987,6 +1004,7 @@ void MainWindow::ApplyTheme() {
 // ─────────────────────────────────────────────
 void MainWindow::UpdateStatusBar() {
     if (!m_hwndStatus) return;
+    if (!m_editor || !m_editor->GetHwnd()) return;
     auto stats = m_editor->ComputeStats();
     m_doc->Stats().words = stats.words;
     m_doc->Stats().chars = stats.chars;
@@ -1016,6 +1034,7 @@ void MainWindow::UpdateTitleBar() {
 }
 
 void MainWindow::UpdateToolbarState() {
+    if (!m_editor || !m_editor->GetHwnd()) return;
     auto en = [&](HWND tb, UINT id, bool e) {
         SendMessageW(tb, TB_ENABLEBUTTON, id, e ? TRUE : FALSE);
     };
