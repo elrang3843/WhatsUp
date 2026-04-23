@@ -3,7 +3,7 @@
 #include "resource.h"
 #include "i18n/Localization.h"
 #include "formats/FormatManager.h"
-#include "cdm/CdmRenderer.hpp"
+#include "CdmLoader.h"
 #include "cdm/CdmNormalizer.hpp"
 #include "dialogs/AboutDialog.h"
 #include "dialogs/SettingsDialog.h"
@@ -744,25 +744,20 @@ bool MainWindow::OpenFile(const std::wstring& path) {
                     Localization::Get(StrID::APP_TITLE), MB_ICONERROR);
         return false;
     }
-    bool usedRtf = false;
     if (!result.cdmDoc.sections.empty()) {
+        // Direct API path: no RTF generation, no EM_STREAMIN.
+        // CdmNormalizer merges adjacent same-styled runs first to reduce work.
         cdm::Normalize(result.cdmDoc);
-        cdm::CdmRenderer renderer;
-        std::string rtf = renderer.Render(result.cdmDoc);
-        m_editor->SetRtf(rtf);
-        usedRtf = true;
+        LoadCdmDocument(result.cdmDoc, m_editor,
+                        Application::Instance().TextColor());
+        m_editor->SetBackground(Application::Instance().BgColor());
     } else if (result.rtf) {
         m_editor->SetRtf(result.content.empty() ? "" :
             std::string(result.content.begin(), result.content.end()));
-        usedRtf = true;
+        m_editor->SetBackground(Application::Instance().BgColor());
     } else if (!result.content.empty()) {
         m_editor->SetText(result.content);
-    }
-
-    // For plain-text loads, reapply theme colours (SCF_ALL) so dark-mode works.
-    // For RTF loads, only restore background — SCF_ALL would erase RTF formatting.
-    if (usedRtf) {
-        m_editor->SetBackground(Application::Instance().BgColor());
+        ApplyTheme();
     } else {
         ApplyTheme();
     }
