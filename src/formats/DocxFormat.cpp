@@ -2,6 +2,7 @@
 #include "ZipReader.h"
 #include <sstream>
 #include <algorithm>
+#include <map>
 
 // ── Shared RTF helpers ────────────────────────────────────────────────────────
 
@@ -24,15 +25,45 @@ static std::string RtfEnc(const std::wstring& ws) {
     return s;
 }
 
-static const std::string kRtfHeader =
+static const std::string kFontTbl =
     "{\\rtf1\\ansi\\deff2\n"
     "{\\fonttbl\n"
     "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
     "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
     "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
     "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
-    "}\n"
-    "\\f2\\fs22\\pard\\ql\n";
+    "}\n";
+
+// Build the RTF header with a colortbl.
+// Index 1 is always \red0\green0\blue0 — MainWindow replaces it with the
+// current theme text color at load time. Document-specific colors go at 2+.
+static std::string BuildRtfHeader(const std::map<std::wstring,int>& colorMap) {
+    std::string h = kFontTbl;
+    h += "{\\colortbl;\\red0\\green0\\blue0;"; // index 1 = theme placeholder
+
+    // Emit entries in index order (not map's alphabetical order)
+    std::vector<std::pair<int,const std::wstring*>> ordered;
+    for (auto& [hex, idx] : colorMap)
+        ordered.push_back({idx, &hex});
+    std::sort(ordered.begin(), ordered.end(),
+              [](const auto& a, const auto& b){ return a.first < b.first; });
+
+    for (auto& [sortIdx, phex] : ordered) {
+        (void)sortIdx;
+        const std::wstring& hex = *phex;
+        unsigned r = 0, g = 0, b = 0;
+        if (hex.size() == 6) {
+            r = static_cast<unsigned>(std::stoul(hex.substr(0,2), nullptr, 16));
+            g = static_cast<unsigned>(std::stoul(hex.substr(2,2), nullptr, 16));
+            b = static_cast<unsigned>(std::stoul(hex.substr(4,2), nullptr, 16));
+        }
+        char entry[48];
+        snprintf(entry, sizeof(entry), "\\red%u\\green%u\\blue%u;", r, g, b);
+        h += entry;
+    }
+    h += "}\n\\f2\\fs22\\cf1\\pard\\ql\n";
+    return h;
+}
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
 
@@ -108,7 +139,11 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
 
     // Run properties
     bool runB = false, runI = false, runU = false, runS = false;
-    int  runFsz = 0;  // half-points; 0 = inherit
+    int  runFsz = 0;     // half-points; 0 = inherit
+    std::wstring runColor; // 6-char hex RGB, empty = no explicit color
+
+    // Document color table (keys = 6-char hex, values = colortbl index 2+)
+    std::map<std::wstring, int> colorMap;
 
     // Table
     struct Cell { int w; std::string c; };
@@ -192,7 +227,7 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
         // --- Run ---
         else if (nm == L"w:r") {
             if (!isE && !isSC) {
-                inRun = true; runB=runI=runU=runS=false; runFsz=0;
+                inRun = true; runB=runI=runU=runS=false; runFsz=0; runColor.clear();
             } else inRun = false;
         }
         else if (nm == L"w:rPr") { inRPr = !isE; }
@@ -205,6 +240,15 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
         else if ((nm==L"w:sz"||nm==L"w:szCs") && inRPr && !isE && runFsz==0) {
             auto v=WAttr(raw,L"w:val"); if(!v.empty()) runFsz=_wtoi(v.c_str());
         }
+        else if (nm==L"w:color" && inRPr && !isE) {
+            auto v = WAttr(raw, L"w:val");
+            if (v != L"auto" && v.size() == 6) {
+                // Ensure color is in the map; assign next available index (2+)
+                if (colorMap.find(v) == colorMap.end())
+                    colorMap[v] = static_cast<int>(colorMap.size()) + 2;
+                runColor = v;
+            }
+        }
         // --- Text ---
         else if (nm == L"w:t" && !isE) {
             size_t ce = xml.find(L"</w:t>", gt + 1);
@@ -212,7 +256,7 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
                 std::wstring text = xml.substr(gt + 1, ce - gt - 1);
                 DecodeXmlEntities(text);
                 std::string& d2 = inCell ? cellBuf : body;
-                bool hasFmt = runB||runI||runU||runS||runFsz>0;
+                bool hasFmt = runB||runI||runU||runS||runFsz>0||!runColor.empty();
                 if (hasFmt) {
                     std::string fmt = "{";
                     if (runB)    fmt += "\\b ";
@@ -220,6 +264,9 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
                     if (runU)    fmt += "\\ul ";
                     if (runS)    fmt += "\\strike ";
                     if (runFsz > 0) { fmt += "\\fs"; fmt += std::to_string(runFsz); fmt += " "; }
+                    if (!runColor.empty()) {
+                        fmt += "\\cf" + std::to_string(colorMap.at(runColor)) + " ";
+                    }
                     d2 += fmt + RtfEnc(text) + "}";
                 } else {
                     d2 += RtfEnc(text);
@@ -289,7 +336,7 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
         }
     }
 
-    return kRtfHeader + body + "}";
+    return BuildRtfHeader(colorMap) + body + "}";
 }
 
 // ── Build helpers (Save) ──────────────────────────────────────────────────────

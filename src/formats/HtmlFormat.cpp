@@ -4,11 +4,107 @@
 #include <sstream>
 #include <vector>
 #include <cstdint>
+#include <map>
 
 static std::wstring ReadTextFile(const std::wstring& path) {
     TxtFormat txt; Document dummy;
     auto r = txt.Load(path, dummy);
     return r.ok ? r.content : L"";
+}
+
+// ── Color helpers ─────────────────────────────────────────────────────────────
+
+// Returns 6-char uppercase hex RGB string from a CSS color value, or empty
+static std::wstring ParseCssColor(std::wstring v) {
+    size_t s = v.find_first_not_of(L" \t\r\n");
+    size_t e = v.find_last_not_of(L" \t\r\n");
+    if (s == std::wstring::npos) return {};
+    v = v.substr(s, e - s + 1);
+    if (!v.empty() && v[0] == L'#') {
+        if (v.size() == 7) {
+            std::wstring hex = v.substr(1);
+            for (auto& c : hex) c = towupper(c);
+            return hex;
+        }
+        if (v.size() == 4) {
+            std::wstring hex;
+            hex += v[1]; hex += v[1]; hex += v[2]; hex += v[2]; hex += v[3]; hex += v[3];
+            for (auto& c : hex) c = towupper(c);
+            return hex;
+        }
+    }
+    std::wstring vl = v; for (auto& c : vl) c = towlower(c);
+    static const struct { const wchar_t* n; const wchar_t* h; } tbl[] = {
+        {L"red",L"FF0000"},{L"green",L"008000"},{L"blue",L"0000FF"},
+        {L"yellow",L"FFFF00"},{L"orange",L"FFA500"},{L"purple",L"800080"},
+        {L"navy",L"000080"},{L"teal",L"008080"},{L"maroon",L"800000"},
+        {L"olive",L"808000"},{L"gray",L"808080"},{L"grey",L"808080"},
+        {L"cyan",L"00FFFF"},{L"aqua",L"00FFFF"},{L"magenta",L"FF00FF"},
+        {L"fuchsia",L"FF00FF"},{L"lime",L"00FF00"},{L"silver",L"C0C0C0"},
+        {L"black",L"000000"},{L"white",L"FFFFFF"},{L"brown",L"A52A2A"},
+        {L"pink",L"FFC0CB"},{L"coral",L"FF7F50"},{L"gold",L"FFD700"},
+    };
+    for (auto& e2 : tbl) if (vl == e2.n) return e2.h;
+    return {};
+}
+
+// Extract value of a CSS property from a style attribute string
+static std::wstring CssProp(const std::wstring& style, const std::wstring& prop) {
+    std::wstring sl = style; for (auto& c : sl) c = towlower(c);
+    size_t pos = sl.find(prop + L":");
+    if (pos == std::wstring::npos) return {};
+    pos += prop.size() + 1;
+    while (pos < sl.size() && sl[pos] == L' ') pos++;
+    size_t end = sl.find(L';', pos);
+    if (end == std::wstring::npos) end = sl.size();
+    return style.substr(pos, end - pos);
+}
+
+// Get value of an HTML attribute (case-insensitive attribute name)
+static std::wstring HtmlAttr(const std::wstring& tag, const std::wstring& attr) {
+    std::wstring tl = tag; for (auto& c : tl) c = towlower(c);
+    std::wstring al = attr; for (auto& c : al) c = towlower(c);
+    size_t p = tl.find(al + L"=\"");
+    if (p == std::wstring::npos) p = tl.find(al + L"='");
+    if (p == std::wstring::npos) return {};
+    wchar_t q = tag[p + attr.size() + 1];
+    p += attr.size() + 2;
+    size_t e = tag.find(q, p);
+    return e != std::wstring::npos ? tag.substr(p, e - p) : std::wstring{};
+}
+
+static std::string BuildHtmlRtfHeader(const std::map<std::wstring,int>& colorMap) {
+    std::string h =
+        "{\\rtf1\\ansi\\deff2\n"
+        "{\\fonttbl\n"
+        "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
+        "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
+        "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
+        "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
+        "}\n"
+        "{\\colortbl;\\red0\\green0\\blue0;"; // index 1 = theme placeholder
+
+    // Emit entries in index order (not map's alphabetical order)
+    std::vector<std::pair<int,const std::wstring*>> ordered;
+    for (auto& [hex, idx] : colorMap)
+        ordered.push_back({idx, &hex});
+    std::sort(ordered.begin(), ordered.end(),
+              [](const auto& a, const auto& b){ return a.first < b.first; });
+
+    for (auto& [sortIdx, phex] : ordered) {
+        (void)sortIdx;
+        const std::wstring& hex = *phex;
+        unsigned r = 0, g = 0, b = 0;
+        if (hex.size() == 6) {
+            r = static_cast<unsigned>(std::stoul(std::string(hex.begin(), hex.begin()+2), nullptr, 16));
+            g = static_cast<unsigned>(std::stoul(std::string(hex.begin()+2, hex.begin()+4), nullptr, 16));
+            b = static_cast<unsigned>(std::stoul(std::string(hex.begin()+4, hex.end()), nullptr, 16));
+        }
+        char e2[48]; snprintf(e2, sizeof(e2), "\\red%u\\green%u\\blue%u;", r, g, b);
+        h += e2;
+    }
+    h += "}\n\\f2\\fs22\\cf1\\pard\\ql\n";
+    return h;
 }
 
 // ── RTF helper ────────────────────────────────────────────────────────────────
@@ -30,16 +126,6 @@ static std::string RtfEnc(const std::wstring& ws) {
     }
     return s;
 }
-
-static const std::string kRtfHeader =
-    "{\\rtf1\\ansi\\deff2\n"
-    "{\\fonttbl\n"
-    "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
-    "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
-    "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
-    "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
-    "}\n"
-    "\\f2\\fs22\\pard\\ql\n";
 
 // ── Entity decoder ────────────────────────────────────────────────────────────
 
@@ -78,6 +164,10 @@ static std::string HtmlToRtf(const std::wstring& html) {
     int  boldD = 0, italicD = 0, underD = 0, codeD = 0;
     bool listOl = false;
     int  listNum = 0;
+
+    // Color stack: each entry is a colortbl index (0 = no explicit color = use \cf1 default)
+    std::vector<int> colorStack;
+    std::map<std::wstring, int> colorMap; // hex -> colortbl index 2+
 
     // Table state
     struct Cell { std::string c; bool isHdr; };
@@ -171,6 +261,32 @@ static std::string HtmlToRtf(const std::wstring& html) {
             else if (nm==L"i"||nm==L"em")     { (inCell?cellBuf:body) += "{\\i ";   italicD++; }
             else if (nm==L"u")                { (inCell?cellBuf:body) += "{\\ul ";  underD++;  }
             else if (nm==L"a")                { (inCell?cellBuf:body) += "{\\ul ";  underD++;  }
+            else if (nm==L"span"||nm==L"font") {
+                // Check for color attribute or style
+                std::wstring hex;
+                if (nm == L"font") {
+                    auto cv = HtmlAttr(raw, L"color");
+                    if (!cv.empty()) hex = ParseCssColor(cv);
+                }
+                if (hex.empty()) {
+                    auto sv = HtmlAttr(raw, L"style");
+                    if (!sv.empty()) hex = ParseCssColor(CssProp(sv, L"color"));
+                }
+                if (!hex.empty()) {
+                    auto it = colorMap.find(hex);
+                    if (it == colorMap.end()) {
+                        int idx = static_cast<int>(colorMap.size()) + 2;
+                        colorMap[hex] = idx;
+                        it = colorMap.find(hex);
+                    }
+                    char rtfClr[24];
+                    snprintf(rtfClr, sizeof(rtfClr), "{\\cf%d ", it->second);
+                    (inCell?cellBuf:body) += rtfClr;
+                    colorStack.push_back(it->second);
+                } else {
+                    colorStack.push_back(0); // no color, just balance the stack
+                }
+            }
             else if (nm==L"table")            { inTable=true; tblRows.clear(); }
             else if (nm==L"tr")               { inRow=true; tblRow.clear(); }
             else if (nm==L"td")               { inCell=true; cellBuf.clear(); cellIsHdr=false; }
@@ -192,6 +308,13 @@ static std::string HtmlToRtf(const std::wstring& html) {
             }
             else if (nm==L"u"||nm==L"a") {
                 if (underD  > 0) { (inCell?cellBuf:body) += "}"; underD--;  }
+            }
+            else if (nm==L"span"||nm==L"font") {
+                if (!colorStack.empty()) {
+                    if (colorStack.back() != 0)
+                        (inCell?cellBuf:body) += "}";
+                    colorStack.pop_back();
+                }
             }
             else if (nm==L"table") {
                 if (!tblRows.empty()) {
@@ -231,7 +354,7 @@ static std::string HtmlToRtf(const std::wstring& html) {
         }
     }
 
-    return kRtfHeader + body + "}";
+    return BuildHtmlRtfHeader(colorMap) + body + "}";
 }
 
 // ── WrapHtml (Save) ───────────────────────────────────────────────────────────

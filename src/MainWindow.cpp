@@ -736,14 +736,48 @@ bool MainWindow::OpenFile(const std::wstring& path) {
                     Localization::Get(StrID::APP_TITLE), MB_ICONERROR);
         return false;
     }
-    if (result.rtf) m_editor->SetRtf(result.content.empty() ? "" :
-        std::string(result.content.begin(), result.content.end()));
-    else            m_editor->SetText(result.content);
+    if (result.rtf && !result.content.empty()) {
+        // Inject a color table into the RTF header so that:
+        //   \cf1 = current theme text color (used as the document default)
+        //   \cf2+ = document-specific colors embedded by the format reader
+        // This lets document colors show through while still respecting the
+        // current theme color for plain paragraphs.
+        COLORREF tc = Application::Instance().TextColor();
+        std::string rtf(result.content.begin(), result.content.end());
 
-    // WM_SETTEXT can reset character formatting to Windows defaults.
-    // Reapply the current theme so text colour stays correct (especially
-    // important in dark mode where default black text is invisible).
-    ApplyTheme();
+        // Case 1: format file already built a colortbl with a placeholder
+        // \red0\green0\blue0 at index 1 — just patch the RGB values in-place.
+        const std::string kThemePlaceholder = "{\\colortbl;\\red0\\green0\\blue0;";
+        size_t cp = rtf.find(kThemePlaceholder);
+        if (cp != std::string::npos) {
+            char rgb[48];
+            snprintf(rgb, sizeof(rgb), "\\red%u\\green%u\\blue%u",
+                     GetRValue(tc), GetGValue(tc), GetBValue(tc));
+            // Replace the \red0\green0\blue0 substring (14 chars) with the theme RGB
+            rtf.replace(cp + 11, 18, rgb); // 11 = len("{\colortbl;"), 18 = len("\red0\green0\blue0")
+        } else {
+            // Case 2: no colortbl in RTF — inject one after the font table
+            const std::string kFontEnd = "}\n\\f2\\fs22\\pard\\ql\n";
+            size_t p = rtf.find(kFontEnd);
+            if (p != std::string::npos) {
+                char ct[80];
+                snprintf(ct, sizeof(ct),
+                         "{\\colortbl;\\red%u\\green%u\\blue%u;}\n",
+                         GetRValue(tc), GetGValue(tc), GetBValue(tc));
+                rtf.replace(p, kFontEnd.size(),
+                            "}\n" + std::string(ct) + "\\f2\\fs22\\cf1\\pard\\ql\n");
+            }
+        }
+        m_editor->SetRtf(rtf);
+        // Only update background; document colors are now embedded in RTF
+        // so we must NOT call ApplyCharFormat(SCF_ALL) which would wipe them.
+        m_editor->SetBackground(Application::Instance().BgColor());
+        InvalidateRect(m_hwnd, nullptr, TRUE);
+    } else {
+        if (!result.content.empty()) m_editor->SetText(result.content);
+        // Plain text: reapply theme so colour/background are correct.
+        ApplyTheme();
+    }
 
     m_doc->SetPath(path);
     m_doc->SetModified(false);
