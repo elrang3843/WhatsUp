@@ -390,7 +390,7 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(
             auto [altText, newPos] = extractDrawing(pos);
             pos = newPos;
             ++drawingCount;
-            std::string resId = "img_" + std::to_string(drawingCount);
+            cdm::ResourceId resId = static_cast<cdm::ResourceId>(drawingCount);
             if (inCell) {
                 cellBuf += L'[';
                 if (!altText.empty()) cellBuf += std::wstring(altText.begin(),altText.end());
