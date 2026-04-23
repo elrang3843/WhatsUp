@@ -84,9 +84,9 @@ public:
     void Paste()      { SendMessageW(m_hwnd, WM_PASTE, 0, 0); }
     void SelectAll()  { SendMessageW(m_hwnd, EM_SETSEL, 0, -1); }
 
-    bool CanUndo() const { return SendMessageW(m_hwnd, EM_CANUNDO, 0, 0) != 0; }
-    bool CanRedo() const { return SendMessageW(m_hwnd, EM_CANREDO, 0, 0) != 0; }
-    bool CanPaste()const { return SendMessageW(m_hwnd, EM_CANPASTE, 0, 0) != 0; }
+    bool CanUndo() const { return m_hwnd && SendMessageW(m_hwnd, EM_CANUNDO, 0, 0) != 0; }
+    bool CanRedo() const { return m_hwnd && SendMessageW(m_hwnd, EM_CANREDO, 0, 0) != 0; }
+    bool CanPaste()const { return m_hwnd && SendMessageW(m_hwnd, EM_CANPASTE, 0, 0) != 0; }
 
     // ---- Character formatting ----
     void ApplyCharFormat(const CharFormat& cf, bool selOnly = true);
@@ -135,8 +135,8 @@ public:
     bool Print(HWND hwndOwner, const std::wstring& docTitle);
 
     // ---- Modified flag ----
-    bool IsModified() const { return SendMessageW(m_hwnd, EM_GETMODIFY, 0, 0) != 0; }
-    void SetModified(bool v){ SendMessageW(m_hwnd, EM_SETMODIFY, v ? TRUE : FALSE, 0); }
+    bool IsModified() const { return m_hwnd && SendMessageW(m_hwnd, EM_GETMODIFY, 0, 0) != 0; }
+    void SetModified(bool v){ if (m_hwnd) SendMessageW(m_hwnd, EM_SETMODIFY, v ? TRUE : FALSE, 0); }
 
     // ---- Background color (for theme) ----
     void SetBackground(COLORREF color);

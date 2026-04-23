@@ -87,6 +87,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 RECT rc{};
                 GetClientRect(hwnd, &rc);
                 self->OnSize(rc.right, rc.bottom);
+                // Apply theme colors and refresh status/toolbar now that editor exists
+                self->ApplyTheme();
+                self->UpdateStatusBar();
+                self->UpdateToolbarState();
+                SetFocus(self->m_editor->GetHwnd());
             }
         }
         return 0;

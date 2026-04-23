@@ -28,7 +28,6 @@ private:
 
     // Layout
     void OnSize(int cx, int cy);
-    RECT GetEditorRect() const;
 
     // Commands
     void OnCommand(UINT id);
@@ -86,8 +85,7 @@ private:
     void UpdateTitleBar();
     void UpdateToolbarState();
 
-    // Spell check
-    void RunSpellCheck();
+    // Spell check / text changes
     void OnTextChanged();
 
     // Open file given path (drag-drop / command line)
