@@ -65,20 +65,10 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         s_instance  = self2;
         self2->m_hwnd = hwnd;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self2));
-        bool ok = false;
-        __try {
-            ok = self2->OnCreate(hwnd,
-                     reinterpret_cast<CREATESTRUCTW*>(lParam)->hInstance);
-        }
-        __except(EXCEPTION_EXECUTE_HANDLER) {
-            wchar_t buf[256];
-            swprintf_s(buf, _countof(buf),
-                L"OnCreate 중 예외 발생 (코드: 0x%08lX)\n"
-                L"GetLastError: %lu",
-                GetExceptionCode(), GetLastError());
-            MessageBoxW(nullptr, buf, L"WhatsUp 치명적 오류", MB_OK | MB_ICONERROR);
-        }
-        return ok ? 0 : -1;
+        if (!self2->OnCreate(hwnd,
+                reinterpret_cast<CREATESTRUCTW*>(lParam)->hInstance))
+            return -1;
+        return 0;
     }
     case WM_APP + 1:
         // Deferred editor init: RichEdit DLL's D2D thread must complete
