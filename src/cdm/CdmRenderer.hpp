@@ -39,7 +39,7 @@ private:
     void WriteInlines(const std::vector<InlinePtr>& inlines);
     void WriteInline(const Inline& inl);
     void WriteText(const Text& t);
-    void WriteInlineContainer(const InlineContainer& ic, const char* open, const char* close);
+    void WriteInlineContainer(const InlineContainer& ic, const char* onCmd, const char* offCmd);
 
     void ApplyTextStyle(const TextStyle& s, std::string& out);
     void ResetStyle(std::string& out);

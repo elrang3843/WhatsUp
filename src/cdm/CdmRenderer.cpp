@@ -138,16 +138,16 @@ std::string CdmRenderer::Render(const Document& doc) {
 }
 
 void CdmRenderer::WriteHeader() {
-    rtf_ += "{\\rtf1\\ansi\\ansicpg949\\deff0";
+    // \ansicpg1252: safe Western codepage; all non-ASCII uses \u escapes anyway
+    // \uc1: each \uN escape has 1 fallback character (the '?')
+    rtf_ += "{\\rtf1\\ansi\\ansicpg1252\\uc1\\deff0";
 
-    // Font table — f0=Malgun Gothic (Korean), f1=Courier New, rest dynamic
+    // Font table — charset 0 (ANSI) for all; Unicode escapes handle non-Latin chars
     rtf_ += "{\\fonttbl";
     for (int i = 0; i < static_cast<int>(fontTable_.size()); ++i) {
         char buf[256];
-        // f0 (Malgun Gothic) uses charset 129 (Hangul); others use 0 (ANSI)
-        int charset = (fontTable_[i] == "Malgun Gothic") ? 129 : 0;
         std::snprintf(buf, sizeof(buf),
-            "{\\f%d\\fswiss\\fcharset%d %s;}", i, charset, fontTable_[i].c_str());
+            "{\\f%d\\fswiss\\fcharset0 %s;}", i, fontTable_[i].c_str());
         rtf_ += buf;
     }
     rtf_ += '}';
@@ -165,7 +165,7 @@ void CdmRenderer::WriteHeader() {
     }
 
     // Default paragraph + font settings
-    rtf_ += "\\f0\\fs22\\pard\\ql ";
+    rtf_ += "\\f0\\fs22\\pard ";
 }
 
 void CdmRenderer::WriteDocument(const Document& doc) {
@@ -338,19 +338,45 @@ void CdmRenderer::WriteInline(const Inline& inl) {
                 rtf_ += "\\page ";
         }
         else if constexpr (std::is_same_v<T, InlineCode>) {
-            rtf_ += "{\\f1\\fs18 ";
+            rtf_ += "\\f1\\fs18 ";
             rtf_ += EscapeRtf(v.text);
-            rtf_ += '}';
+            rtf_ += "\\f0\\fs22 ";
         }
-        else if constexpr (std::is_same_v<T, Strong>)   WriteInlineContainer(v, "{\\b ",   "}");
-        else if constexpr (std::is_same_v<T, Emphasis>) WriteInlineContainer(v, "{\\i ",   "}");
-        else if constexpr (std::is_same_v<T, Underline>)WriteInlineContainer(v, "{\\ul ",  "}");
+        else if constexpr (std::is_same_v<T, Strong>)
+            WriteInlineContainer(v, "\\b ",    "\\b0 ");
+        else if constexpr (std::is_same_v<T, Emphasis>)
+            WriteInlineContainer(v, "\\i ",    "\\i0 ");
+        else if constexpr (std::is_same_v<T, Underline>)
+            WriteInlineContainer(v, "\\ul ",   "\\ulnone ");
         else if constexpr (std::is_same_v<T, Span>) {
-            std::string styleStr = "{";
-            ApplyTextStyle(v.directStyle, styleStr);
-            rtf_ += styleStr;
-            WriteInlines(v.children);
-            rtf_ += '}';
+            // Span needs full style — use group only when font changes (unavoidable)
+            bool needsFontChange = v.directStyle.fontFamily || v.directStyle.fontSize;
+            if (needsFontChange) {
+                std::string grp = "{";
+                ApplyTextStyle(v.directStyle, grp);
+                rtf_ += grp;
+                WriteInlines(v.children);
+                rtf_ += '}';
+            } else {
+                // toggle style, no group
+                std::string on, off;
+                if (v.directStyle.bold && *v.directStyle.bold)
+                    { on += "\\b "; off += "\\b0 "; }
+                if (v.directStyle.italic && *v.directStyle.italic)
+                    { on += "\\i "; off += "\\i0 "; }
+                if (v.directStyle.underline &&
+                    *v.directStyle.underline != UnderlineStyle::None)
+                    { on += "\\ul "; off += "\\ulnone "; }
+                if (v.directStyle.color) {
+                    char buf[16];
+                    std::snprintf(buf, sizeof(buf), "\\cf%d ",
+                                  ColorIndex(*v.directStyle.color));
+                    on += buf; off += "\\cf0 ";
+                }
+                rtf_ += on;
+                WriteInlines(v.children);
+                rtf_ += off;
+            }
         }
         else if constexpr (std::is_same_v<T, Hyperlink>) {
             // Display text is a sibling Text node; Hyperlink just carries href metadata
@@ -364,26 +390,59 @@ void CdmRenderer::WriteInline(const Inline& inl) {
 }
 
 void CdmRenderer::WriteText(const Text& t) {
-    bool hasStyle = t.directStyle.bold || t.directStyle.italic ||
-                    t.directStyle.underline || t.directStyle.color ||
-                    t.directStyle.fontFamily || t.directStyle.fontSize;
+    const auto& s = t.directStyle;
+    bool hasStyle = s.bold || s.italic || s.underline || s.color ||
+                    s.fontFamily || s.fontSize || s.strike;
     if (hasStyle) {
-        std::string styleStr = "{";
-        ApplyTextStyle(t.directStyle, styleStr);
-        rtf_ += styleStr;
+        // Emit toggle-style formatting (no groups) to avoid RTF parser issues
+        if (s.bold && *s.bold)         rtf_ += "\\b";
+        if (s.italic && *s.italic)     rtf_ += "\\i";
+        if (s.underline && *s.underline != UnderlineStyle::None) rtf_ += "\\ul";
+        if (s.strike && *s.strike)     rtf_ += "\\strike";
+        if (s.color) {
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "\\cf%d", ColorIndex(*s.color));
+            rtf_ += buf;
+        }
+        if (s.fontSize) {
+            int hp = 0;
+            if (s.fontSize->unit == Unit::Pt)
+                hp = static_cast<int>(s.fontSize->value * 2.0);
+            else if (s.fontSize->unit == Unit::Px)
+                hp = static_cast<int>(s.fontSize->value * 1.5);
+            if (hp > 0) {
+                char buf[16];
+                std::snprintf(buf, sizeof(buf), "\\fs%d", hp);
+                rtf_ += buf;
+            }
+        }
+        if (s.fontFamily) {
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), "\\f%d", FontIndex(*s.fontFamily));
+            rtf_ += buf;
+        }
+        rtf_ += ' ';
         rtf_ += EscapeRtf(t.text);
-        rtf_ += '}';
+        // Reset to paragraph defaults
+        if (s.bold && *s.bold)         rtf_ += "\\b0";
+        if (s.italic && *s.italic)     rtf_ += "\\i0";
+        if (s.underline && *s.underline != UnderlineStyle::None) rtf_ += "\\ulnone";
+        if (s.strike && *s.strike)     rtf_ += "\\strike0";
+        if (s.color)                   rtf_ += "\\cf0";
+        if (s.fontSize)                rtf_ += "\\fs22";
+        if (s.fontFamily)              rtf_ += "\\f0";
+        rtf_ += ' ';
     } else {
         rtf_ += EscapeRtf(t.text);
     }
 }
 
 void CdmRenderer::WriteInlineContainer(const InlineContainer& ic,
-    const char* open, const char* close)
+    const char* onCmd, const char* offCmd)
 {
-    rtf_ += open;
+    rtf_ += onCmd;
     WriteInlines(ic.children);
-    rtf_ += close;
+    rtf_ += offCmd;
 }
 
 } // namespace cdm

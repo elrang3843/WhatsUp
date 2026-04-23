@@ -169,7 +169,6 @@ std::string Editor::GetRtf() const {
 
 void Editor::SetRtf(const std::string& rtf) {
     {
-        // Log the RTF header for diagnosis (first 120 chars)
         wchar_t dbg[256];
         size_t  preview = (rtf.size() < 120) ? rtf.size() : 120;
         wchar_t head[128] = {};
@@ -190,6 +189,23 @@ void Editor::SetRtf(const std::string& rtf) {
                    static_cast<long long>(res), es.dwError, ctx.pos);
         RichEditLog(dbg);
     }
+
+    // On error, dump the full RTF to a file for inspection
+    if (es.dwError != 0) {
+        wchar_t dumpPath[MAX_PATH];
+        GetTempPathW(MAX_PATH, dumpPath);
+        wcscat_s(dumpPath, L"whatsup_rtf_dump.txt");
+        FILE* f = nullptr;
+        _wfopen_s(&f, dumpPath, L"wb");
+        if (f) {
+            fwrite(rtf.data(), 1, rtf.size(), f);
+            fclose(f);
+            wchar_t dbg[MAX_PATH + 64];
+            swprintf_s(dbg, L"[WhatsUp] RTF dump written to: %s", dumpPath);
+            RichEditLog(dbg);
+        }
+    }
+
     SetModified(false);
 }
 

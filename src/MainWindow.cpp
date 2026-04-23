@@ -743,20 +743,27 @@ bool MainWindow::OpenFile(const std::wstring& path) {
                     Localization::Get(StrID::APP_TITLE), MB_ICONERROR);
         return false;
     }
+    bool usedRtf = false;
     if (!result.cdmDoc.sections.empty()) {
         cdm::CdmRenderer renderer;
         std::string rtf = renderer.Render(result.cdmDoc);
         m_editor->SetRtf(rtf);
+        usedRtf = true;
     } else if (result.rtf) {
         m_editor->SetRtf(result.content.empty() ? "" :
             std::string(result.content.begin(), result.content.end()));
+        usedRtf = true;
     } else if (!result.content.empty()) {
         m_editor->SetText(result.content);
     }
 
-    // Reapply theme so text/background colours stay correct regardless of
-    // what the RTF or SetText may have reset them to.
-    ApplyTheme();
+    // For plain-text loads, reapply theme colours (SCF_ALL) so dark-mode works.
+    // For RTF loads, only restore background — SCF_ALL would erase RTF formatting.
+    if (usedRtf) {
+        m_editor->SetBackground(Application::Instance().BgColor());
+    } else {
+        ApplyTheme();
+    }
 
     m_doc->SetPath(path);
     m_doc->SetModified(false);
