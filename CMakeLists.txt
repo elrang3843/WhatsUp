@@ -56,9 +56,12 @@ target_link_libraries(WhatsUp PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(WhatsUp PRIVATE /W4 /utf-8 /wd4100 /wd4505)
-    target_link_options(WhatsUp PRIVATE /SUBSYSTEM:WINDOWS)
+    target_compile_options(WhatsUp PRIVATE /W4 /utf-8 /wd4100 /wd4505 /wd4244)
+    target_link_options(WhatsUp PRIVATE /SUBSYSTEM:WINDOWS /MANIFEST:NO)
     set_property(TARGET WhatsUp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # RC compiler needs the resources directory in its include path for manifest.xml
+    set_source_files_properties(src/WhatsUp.rc PROPERTIES
+        COMPILE_FLAGS "/I \"${CMAKE_CURRENT_SOURCE_DIR}/resources\"")
 endif()
 
 if(MINGW)
