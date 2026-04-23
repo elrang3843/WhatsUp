@@ -89,8 +89,10 @@ bool Editor::Create(HWND hwndParent, UINT controlId) {
     }
     RichEditLog(L"[WhatsUp] RichEdit window created OK");
 
-    // Enable Unicode text
-    SendMessageW(m_hwnd, EM_SETTEXTMODE, TM_PLAINTEXT | TM_MULTILEVELUNDO, 0);
+    // Rich-text mode so EM_SETCHARFORMAT with SCF_ALL/SCF_DEFAULT works correctly
+    // after WM_SETTEXT. TM_PLAINTEXT suppresses those formatting calls, making
+    // text invisible in dark theme after a file load.
+    SendMessageW(m_hwnd, EM_SETTEXTMODE, TM_RICHTEXT | TM_MULTILEVELUNDO, 0);
     SendMessageW(m_hwnd, EM_SETUNDOLIMIT, 100, 0);
     SendMessageW(m_hwnd, EM_SETEVENTMASK,
                  ENM_CHANGE | ENM_SELCHANGE | ENM_SCROLL | ENM_KEYEVENTS, 0);
@@ -270,6 +272,8 @@ void Editor::ApplyCharFormat(const CharFormat& cf, bool selOnly) {
 
     WPARAM scx = selOnly ? SCF_SELECTION : SCF_ALL;
     SendMessageW(m_hwnd, EM_SETCHARFORMAT, scx, reinterpret_cast<LPARAM>(&fmt));
+    if (!selOnly)
+        SendMessageW(m_hwnd, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&fmt));
 }
 
 CharFormat Editor::GetCharFormat(bool selOnly) const {
