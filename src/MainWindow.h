@@ -12,6 +12,7 @@
 class MainWindow {
 public:
     static HWND Create(HINSTANCE hInst);
+    static HWND GetFindDlg() { return s_instance ? s_instance->m_hwndFind : nullptr; }
 
 private:
     // Window proc
@@ -123,6 +124,7 @@ private:
     HWND            m_hwndFind      = nullptr; // modeless find/replace dialog
 
     bool            m_gridVisible   = false;
+    bool            m_fullyCreated  = false;
 
     // Toolbar image list (standard icons)
     HIMAGELIST      m_hImgList      = nullptr;

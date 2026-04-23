@@ -36,10 +36,11 @@ bool Application::Init(HINSTANCE hInst, int nCmdShow) {
 int Application::Run() {
     MSG msg{};
     while (GetMessage(&msg, nullptr, 0, 0)) {
-        if (!IsDialogMessage(GetForegroundWindow(), &msg)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-        }
+        HWND hFind = MainWindow::GetFindDlg();
+        if (hFind && IsDialogMessage(hFind, &msg))
+            continue;
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
     }
     SaveSettings();
     return static_cast<int>(msg.wParam);

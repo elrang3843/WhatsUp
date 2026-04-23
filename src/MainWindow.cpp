@@ -82,11 +82,14 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (self && !self->ConfirmClose()) return 0;
         DestroyWindow(hwnd);
         return 0;
-    case WM_DESTROY:
+    case WM_DESTROY: {
+        bool wasFullyCreated = self && self->m_fullyCreated;
         delete s_instance;
         s_instance = nullptr;
-        PostQuitMessage(0);
+        if (wasFullyCreated)
+            PostQuitMessage(0);
         return 0;
+    }
     case WM_DROPFILES: {
         if (!self) break;
         HDROP hDrop = reinterpret_cast<HDROP>(wParam);
@@ -125,6 +128,7 @@ bool MainWindow::OnCreate(HWND hwnd, HINSTANCE hInst) {
     ApplyTheme();
     UpdateTitleBar();
     UpdateStatusBar();
+    m_fullyCreated = true;
     return true;
 }
 
