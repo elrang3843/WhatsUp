@@ -41,7 +41,7 @@ HWND MainWindow::Create(HINSTANCE hInst) {
         WS_EX_ACCEPTFILES,
         kClassName,
         Localization::Get(StrID::APP_TITLE),
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1100, 780,
         nullptr, nullptr, hInst, nullptr);
     return hwnd;
