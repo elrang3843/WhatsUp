@@ -272,8 +272,33 @@ struct CdmLoader {
                     charRuns.push_back(cr);
                 }
             }
-            // Hyperlink: display text already in children (Text nodes)
-            // Image, Field, etc.: skip
+            else if constexpr (std::is_same_v<T, cdm::Hyperlink>) {
+                // URL marker only — display text is in adjacent Text sibling nodes
+                // (styled blue+underline by the format parser)
+                (void)v;
+            }
+            else if constexpr (std::is_same_v<T, cdm::Image>) {
+                int s = richPos;
+                if (v.altText.empty())
+                    AppendWStr(L"[이미지]");
+                else {
+                    AppendWStr(L"[이미지: ");
+                    // altText is UTF-8; convert to wstring
+                    int n = MultiByteToWideChar(CP_UTF8, 0, v.altText.c_str(), -1, nullptr, 0);
+                    if (n > 1) {
+                        std::wstring ws(n-1, L'\0');
+                        MultiByteToWideChar(CP_UTF8, 0, v.altText.c_str(), -1, ws.data(), n);
+                        AppendWStr(ws);
+                    }
+                    AppendWStr(L"]");
+                }
+                if (s < richPos) {
+                    CharRun cr{}; cr.start = s; cr.end = richPos;
+                    cr.fmt.italic    = 1;
+                    cr.fmt.textColor = RGB(0x80, 0x80, 0x80);
+                    charRuns.push_back(cr);
+                }
+            }
         }, inl.value);
     }
 

@@ -79,7 +79,84 @@ static cdm::Color HexToColorDocx(const std::wstring& hex) {
     } catch (...) { return {}; }
 }
 
-cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
+// Parse word/numbering.xml → numId → ListType
+std::map<std::wstring, cdm::ListType> DocxFormat::ParseNumbering(const std::wstring& xml) {
+    std::map<int, cdm::ListType>        abstractFmt;
+    std::map<std::wstring, int>         numToAbstract;
+
+    int  curAbstractId = -1;
+    int  curNumId      = -1;
+    bool inLvl0        = false;
+
+    size_t pos = 0;
+    while (pos < xml.size()) {
+        size_t lt = xml.find(L'<', pos);
+        if (lt == std::wstring::npos) break;
+        size_t gt = xml.find(L'>', lt);
+        if (gt == std::wstring::npos) break;
+        const std::wstring raw = xml.substr(lt+1, gt-lt-1);
+        pos = gt + 1;
+        if (raw.empty() || raw[0]==L'?' || raw[0]==L'!') continue;
+        const bool isE = (raw[0]==L'/');
+        std::wstring nm;
+        { size_t i=isE?1:0; while(i<raw.size()&&raw[i]!=L' '&&raw[i]!=L'/'&&raw[i]!=L'\t'&&raw[i]!=L'\n') nm+=raw[i++]; }
+
+        if (nm==L"w:abstractNum" && !isE) {
+            auto v=WAttr(raw,L"w:abstractNumId"); curAbstractId=v.empty()?-1:_wtoi(v.c_str()); inLvl0=false;
+        } else if (nm==L"w:abstractNum" && isE) { curAbstractId=-1; }
+        else if (nm==L"w:lvl" && !isE && curAbstractId>=0) {
+            auto v=WAttr(raw,L"w:ilvl"); inLvl0=(!v.empty()&&_wtoi(v.c_str())==0);
+        }
+        else if (nm==L"w:numFmt" && !isE && inLvl0 && curAbstractId>=0) {
+            auto v=WAttr(raw,L"w:val");
+            cdm::ListType t=cdm::ListType::Bullet;
+            if (v==L"decimal")     t=cdm::ListType::Numbered;
+            else if (v==L"upperRoman") t=cdm::ListType::RomanUpper;
+            else if (v==L"lowerRoman") t=cdm::ListType::RomanLower;
+            else if (v==L"upperLetter") t=cdm::ListType::AlphaUpper;
+            else if (v==L"lowerLetter") t=cdm::ListType::AlphaLower;
+            abstractFmt[curAbstractId]=t;
+        }
+        else if (nm==L"w:num" && !isE) {
+            auto v=WAttr(raw,L"w:numId"); curNumId=v.empty()?-1:_wtoi(v.c_str());
+        } else if (nm==L"w:num" && isE) { curNumId=-1; }
+        else if (nm==L"w:abstractNumId" && !isE && curNumId>0) {
+            auto v=WAttr(raw,L"w:val");
+            if (!v.empty()) numToAbstract[std::to_wstring(curNumId)]=_wtoi(v.c_str());
+        }
+    }
+    std::map<std::wstring, cdm::ListType> result;
+    for (auto& [numId, abstractId] : numToAbstract) {
+        auto it=abstractFmt.find(abstractId);
+        result[numId]=(it!=abstractFmt.end())?it->second:cdm::ListType::Bullet;
+    }
+    return result;
+}
+
+// Parse word/_rels/document.xml.rels → rId → Target URL
+std::map<std::wstring, std::wstring> DocxFormat::ParseDocRels(const std::wstring& xml) {
+    std::map<std::wstring, std::wstring> rels;
+    size_t pos=0;
+    while (pos < xml.size()) {
+        size_t lt=xml.find(L'<',pos); if(lt==std::wstring::npos) break;
+        size_t gt=xml.find(L'>',lt);  if(gt==std::wstring::npos) break;
+        const std::wstring raw=xml.substr(lt+1,gt-lt-1); pos=gt+1;
+        if (raw.empty()||raw[0]==L'?'||raw[0]==L'!') continue;
+        std::wstring nm;
+        { size_t i=0; while(i<raw.size()&&raw[i]!=L' '&&raw[i]!=L'/'&&raw[i]!=L'\t'&&raw[i]!=L'\n') nm+=raw[i++]; }
+        if (nm==L"Relationship") {
+            auto id=WAttr(raw,L"Id"); auto tgt=WAttr(raw,L"Target");
+            if (!id.empty()) rels[id]=tgt;
+        }
+    }
+    return rels;
+}
+
+cdm::Document DocxFormat::ParseDocumentXmlToCdm(
+    const std::wstring& xml,
+    const std::map<std::wstring, cdm::ListType>& numTypes,
+    const std::map<std::wstring, std::wstring>& rels)
+{
     cdm::DocumentBuilder b;
     b.SetOriginalFormat(cdm::FileFormat::DOCX);
     b.BeginSection();
@@ -94,28 +171,42 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
     int  runFsz = 0;
     std::wstring runColor;
 
+    // List state
+    std::wstring paraNumId;   // numId of current paragraph's list (empty = not a list)
+    int          paraIlvl = 0;
+    bool         inListMode   = false;
+    std::wstring listNumId;
+    int          listLevel    = 0;
+    std::wstring listItemBuf; // plain text accumulator for current list item
+
+    // Hyperlink state
+    bool         inHyperlink    = false;
+    std::wstring hyperlinkRid;
+
+    // Table state
     bool inTable = false, inRow = false, inCell = false;
     std::wstring cellBuf;
-
     struct CellEntry { std::wstring text; };
     std::vector<std::vector<CellEntry>> tblRows;
     std::vector<CellEntry>              tblRow;
 
+    // Drawing counter for resource IDs
+    int drawingCount = 0;
+
     auto ensureParaOpen = [&]() {
-        if (!paraOpen && !inCell) {
+        if (!paraOpen && !inCell && paraNumId.empty()) {
             b.BeginParagraph();
-            if (headingLv > 0) {
-                // heading styling via Bold+fontSize via TextStyle — applied at text node level
-            }
-            if (paraAlign == 1) b.SetCurrentParagraphAlignment(cdm::Alignment::Center);
-            else if (paraAlign == 2) b.SetCurrentParagraphAlignment(cdm::Alignment::Right);
-            else if (paraAlign == 3) b.SetCurrentParagraphAlignment(cdm::Alignment::Justify);
+            if (paraAlign==1) b.SetCurrentParagraphAlignment(cdm::Alignment::Center);
+            else if (paraAlign==2) b.SetCurrentParagraphAlignment(cdm::Alignment::Right);
+            else if (paraAlign==3) b.SetCurrentParagraphAlignment(cdm::Alignment::Justify);
             paraOpen = true;
         }
     };
 
+    // Apply run text to the appropriate buffer/builder
     auto addRunText = [&](const std::wstring& text) {
-        if (inCell) { cellBuf += text; return; }
+        if (inCell)           { cellBuf += text; return; }
+        if (!paraNumId.empty()) { listItemBuf += text; return; }
         ensureParaOpen();
         cdm::TextStyle st;
         if (runB) st.bold = true;
@@ -129,15 +220,39 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
             st.bold = true;
         }
         if (!runColor.empty()) st.color = HexToColorDocx(runColor);
+        // Hyperlink: override colour+underline so links are distinguishable
+        if (inHyperlink && runColor.empty()) st.color = cdm::Color::Make(0x00,0x56,0xB2);
+        if (inHyperlink) st.underline = cdm::UnderlineStyle::Single;
+
         auto u32 = WToU32(text);
-        bool hasStyle = runB || runI || runU || runS || runFsz > 0 ||
-                        !runColor.empty() || headingLv > 0;
+        bool hasStyle = runB||runI||runU||runS||runFsz>0||!runColor.empty()||headingLv>0||inHyperlink;
         if (hasStyle) b.AddStyledText(u32, st);
         else          b.AddText(u32);
     };
 
+    auto flushList = [&]() {
+        if (inListMode) { b.EndList(); inListMode=false; listNumId.clear(); }
+    };
+
     auto closePara = [&]() {
-        if (paraOpen) { b.EndParagraph(); paraOpen = false; }
+        if (!paraNumId.empty()) {
+            // Paragraph is a list item
+            cdm::ListType lt = cdm::ListType::Bullet;
+            auto it = numTypes.find(paraNumId);
+            if (it != numTypes.end()) lt = it->second;
+
+            if (!inListMode || listNumId!=paraNumId || listLevel!=paraIlvl) {
+                flushList();
+                b.BeginList(lt, 1, paraIlvl);
+                inListMode=true; listNumId=paraNumId; listLevel=paraIlvl;
+            }
+            b.AddListItem(WToU32(listItemBuf));
+            listItemBuf.clear();
+            paraNumId.clear(); paraIlvl=0;
+        } else {
+            flushList();
+            if (paraOpen) { b.EndParagraph(); paraOpen=false; }
+        }
     };
 
     auto flushTable = [&]() {
@@ -145,12 +260,36 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
         b.BeginTable();
         for (auto& row : tblRows) {
             b.BeginTableRow();
-            for (auto& cell : row)
-                b.AddTableCell(WToU32(cell.text));
+            for (auto& cell : row) b.AddTableCell(WToU32(cell.text));
             b.EndTableRow();
         }
         b.EndTable();
         tblRows.clear();
+    };
+
+    // Scan forward from pos to find a drawing's alt text and return new pos
+    auto extractDrawing = [&](size_t startPos) -> std::pair<std::string, size_t> {
+        static const std::wstring kEnd = L"</w:drawing>";
+        size_t endPos = xml.find(kEnd, startPos);
+        if (endPos == std::wstring::npos) return {{}, xml.size()};
+        std::wstring chunk = xml.substr(startPos, endPos - startPos);
+        std::string altText;
+        size_t dp = chunk.find(L"docPr");
+        if (dp != std::wstring::npos) {
+            std::wstring descr = L"descr=\"";
+            size_t ap = chunk.find(descr, dp);
+            if (ap != std::wstring::npos) {
+                ap += descr.size();
+                size_t ae = chunk.find(L'"', ap);
+                if (ae != std::wstring::npos) {
+                    std::wstring ws = chunk.substr(ap, ae-ap);
+                    int n = WideCharToMultiByte(CP_UTF8,0,ws.c_str(),(int)ws.size(),nullptr,0,nullptr,nullptr);
+                    altText.resize(n);
+                    WideCharToMultiByte(CP_UTF8,0,ws.c_str(),(int)ws.size(),altText.data(),n,nullptr,nullptr);
+                }
+            }
+        }
+        return {altText, endPos + kEnd.size()};
     };
 
     size_t pos = 0;
@@ -178,7 +317,7 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
         if (nm == L"w:p") {
             if (!isE && !isSC) {
                 inPara = true;
-                paraAlign = 0; headingLv = 0;
+                paraAlign=0; headingLv=0; paraNumId.clear(); paraIlvl=0;
             } else if (isE) {
                 closePara();
                 inPara = false;
@@ -186,60 +325,97 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
         }
         else if (nm == L"w:pPr") { inPPr = !isE; }
         else if (nm == L"w:jc" && inPPr) {
-            auto v = WAttr(raw, L"w:val");
-            paraAlign = (v==L"center")?1:(v==L"right")?2:(v==L"both")?3:0;
+            auto v=WAttr(raw,L"w:val");
+            paraAlign=(v==L"center")?1:(v==L"right")?2:(v==L"both")?3:0;
         }
         else if (nm == L"w:pStyle" && inPPr) {
-            auto v = WAttr(raw, L"w:val");
-            for (int lv = 1; lv <= 6; lv++) {
-                if (v == L"Heading"  + std::to_wstring(lv) ||
-                    v == L"heading"  + std::to_wstring(lv) ||
-                    v == L"Heading " + std::to_wstring(lv))
-                { headingLv = lv; break; }
+            auto v=WAttr(raw,L"w:val");
+            for (int lv=1; lv<=6; lv++) {
+                if (v==L"Heading"+std::to_wstring(lv)||v==L"heading"+std::to_wstring(lv)||
+                    v==L"Heading "+std::to_wstring(lv)) { headingLv=lv; break; }
             }
+        }
+        else if (nm == L"w:numId" && inPPr) {
+            auto v = WAttr(raw, L"w:val");
+            // numId "0" means no list
+            paraNumId = (v.empty()||v==L"0") ? L"" : v;
+        }
+        else if (nm == L"w:ilvl" && inPPr) {
+            auto v = WAttr(raw, L"w:val");
+            paraIlvl = v.empty() ? 0 : _wtoi(v.c_str());
         }
         else if (nm == L"w:r") {
             if (!isE && !isSC) {
-                inRun = true; runB=runI=runU=runS=false; runFsz=0; runColor.clear();
-            } else inRun = false;
+                inRun=true; runB=runI=runU=runS=false; runFsz=0; runColor.clear();
+            } else inRun=false;
         }
         else if (nm == L"w:rPr") { inRPr = !isE; }
-        else if ((nm==L"w:b"||nm==L"w:bCs")  && inRPr && !isE) { runB = WAttr(raw,L"w:val")!=L"0"; }
-        else if ((nm==L"w:i"||nm==L"w:iCs")  && inRPr && !isE) { runI = WAttr(raw,L"w:val")!=L"0"; }
+        else if ((nm==L"w:b"||nm==L"w:bCs")  && inRPr && !isE) { runB=WAttr(raw,L"w:val")!=L"0"; }
+        else if ((nm==L"w:i"||nm==L"w:iCs")  && inRPr && !isE) { runI=WAttr(raw,L"w:val")!=L"0"; }
         else if (nm==L"w:u"                   && inRPr && !isE) {
             auto v=WAttr(raw,L"w:val"); runU=v.empty()||(v!=L"none"&&v!=L"0");
         }
-        else if (nm==L"w:strike"              && inRPr && !isE) { runS = WAttr(raw,L"w:val")!=L"0"; }
+        else if (nm==L"w:strike"              && inRPr && !isE) { runS=WAttr(raw,L"w:val")!=L"0"; }
         else if ((nm==L"w:sz"||nm==L"w:szCs") && inRPr && !isE && runFsz==0) {
             auto v=WAttr(raw,L"w:val"); if(!v.empty()) runFsz=_wtoi(v.c_str());
         }
         else if (nm==L"w:color" && inRPr && !isE) {
-            auto v = WAttr(raw, L"w:val");
-            if (v != L"auto" && v.size() == 6) runColor = v;
+            auto v=WAttr(raw,L"w:val");
+            if (v!=L"auto" && v.size()==6) runColor=v;
         }
         else if (nm == L"w:t" && !isE) {
             size_t ce = xml.find(L"</w:t>", gt + 1);
             if (ce != std::wstring::npos) {
-                std::wstring text = xml.substr(gt + 1, ce - gt - 1);
+                std::wstring text = xml.substr(gt+1, ce-gt-1);
                 DecodeXmlEntities(text);
                 addRunText(text);
                 pos = ce + 6;
             }
         }
         else if (nm == L"w:br" && !isE) {
-            auto v = WAttr(raw, L"w:type");
+            auto v=WAttr(raw,L"w:type");
             if (inCell) cellBuf += L'\n';
+            else if (!paraNumId.empty()) listItemBuf += L'\n';
             else if (paraOpen) {
-                if (v == L"page") { closePara(); }
+                if (v==L"page") closePara();
                 else b.AddLineBreak();
             }
         }
         else if (nm == L"w:tab" && !isE) {
             if (inCell) cellBuf += L'\t';
+            else if (!paraNumId.empty()) listItemBuf += L'\t';
             else { ensureParaOpen(); b.AddTab(); }
         }
+        else if (nm == L"w:drawing" && !isE) {
+            auto [altText, newPos] = extractDrawing(pos);
+            pos = newPos;
+            ++drawingCount;
+            std::string resId = "img_" + std::to_string(drawingCount);
+            if (inCell) {
+                cellBuf += L'[';
+                if (!altText.empty()) cellBuf += std::wstring(altText.begin(),altText.end());
+                else cellBuf += L"이미지";
+                cellBuf += L']';
+            } else if (!paraNumId.empty()) {
+                listItemBuf += L'[';
+                if (!altText.empty()) listItemBuf += std::wstring(altText.begin(),altText.end());
+                else listItemBuf += L"이미지";
+                listItemBuf += L']';
+            } else {
+                ensureParaOpen();
+                b.AddImage(resId, altText);
+            }
+        }
+        else if (nm == L"w:hyperlink") {
+            if (!isE && !isSC) {
+                inHyperlink = true;
+                hyperlinkRid = WAttr(raw, L"r:id");
+            } else if (isE) {
+                inHyperlink = false; hyperlinkRid.clear();
+            }
+        }
         else if (nm == L"w:tbl") {
-            if (!isE && !isSC) { closePara(); inTable=true; tblRows.clear(); }
+            if (!isE && !isSC) { closePara(); flushList(); inTable=true; tblRows.clear(); }
             else if (isE) { flushTable(); inTable=false; }
         }
         else if (nm == L"w:tr") {
@@ -252,6 +428,7 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
         }
     }
 
+    flushList();
     closePara();
     b.EndSection();
     return b.MoveBuild();
@@ -371,8 +548,17 @@ FormatResult DocxFormat::Load(const std::wstring& path, Document& doc) {
         r.error = L"Malformed DOCX: missing word/document.xml";
         return r;
     }
+
+    std::map<std::wstring, cdm::ListType>   numTypes;
+    std::map<std::wstring, std::wstring>    docRels;
+
+    if (zip.HasEntry("word/numbering.xml"))
+        numTypes = ParseNumbering(zip.ExtractWide("word/numbering.xml"));
+    if (zip.HasEntry("word/_rels/document.xml.rels"))
+        docRels  = ParseDocRels(zip.ExtractWide("word/_rels/document.xml.rels"));
+
     std::wstring docXml = zip.ExtractWide("word/document.xml");
-    r.cdmDoc = ParseDocumentXmlToCdm(docXml);
+    r.cdmDoc = ParseDocumentXmlToCdm(docXml, numTypes, docRels);
     r.ok     = true;
     return r;
 }

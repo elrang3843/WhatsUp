@@ -1,6 +1,7 @@
 #pragma once
 #include "IDocumentFormat.h"
 #include "../cdm/document_model.hpp"
+#include <map>
 
 class DocxFormat : public IDocumentFormat {
 public:
@@ -13,7 +14,12 @@ public:
 
 private:
     // Convert word/document.xml to CDM document
-    static cdm::Document ParseDocumentXmlToCdm(const std::wstring& xml);
+    static cdm::Document ParseDocumentXmlToCdm(
+        const std::wstring& xml,
+        const std::map<std::wstring, cdm::ListType>& numTypes,
+        const std::map<std::wstring, std::wstring>& rels);
+    static std::map<std::wstring, cdm::ListType> ParseNumbering(const std::wstring& xml);
+    static std::map<std::wstring, std::wstring>  ParseDocRels(const std::wstring& xml);
     // Build word/document.xml from plain text
     static std::string  BuildDocumentXml(const std::wstring& text, const DocProperties& props);
     static std::string  BuildCoreXml(const DocProperties& props);
