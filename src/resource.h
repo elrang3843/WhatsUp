@@ -209,3 +209,6 @@
 // String table (for version info)
 #define IDS_APP_TITLE           4001
 #define IDS_VERSION             4002
+
+// Binary data resources
+#define IDR_SPLASH_PNG          5001

@@ -10,6 +10,9 @@
 // Path is relative to resources/ dir added via /I flag in CMakeLists.txt
 1 RT_MANIFEST "manifest.xml"
 
+// Splash screen PNG (found via /I images/ flag in CMakeLists.txt)
+IDR_SPLASH_PNG RCDATA "WhatsUp_start1.png"
+
 // Version information
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION    1,0,0,0

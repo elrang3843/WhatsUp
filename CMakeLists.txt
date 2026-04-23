@@ -43,6 +43,7 @@ target_link_libraries(WhatsUp PRIVATE
     comctl32
     comdlg32
     gdi32
+    gdiplus
     user32
     shell32
     ole32
@@ -59,9 +60,9 @@ if(MSVC)
     target_compile_options(WhatsUp PRIVATE /W4 /utf-8 /wd4100 /wd4505 /wd4244)
     target_link_options(WhatsUp PRIVATE /SUBSYSTEM:WINDOWS /MANIFEST:NO)
     set_property(TARGET WhatsUp PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    # RC compiler needs the resources directory in its include path for manifest.xml
+    # RC compiler needs resources/ (for manifest.xml) and images/ (for splash PNG)
     set_source_files_properties(src/WhatsUp.rc PROPERTIES
-        COMPILE_FLAGS "/I \"${CMAKE_CURRENT_SOURCE_DIR}/resources\"")
+        COMPILE_FLAGS "/I \"${CMAKE_CURRENT_SOURCE_DIR}/resources\" /I \"${CMAKE_CURRENT_SOURCE_DIR}/images\"")
 endif()
 
 if(MINGW)
