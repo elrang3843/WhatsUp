@@ -203,6 +203,12 @@ static cdm::Document HtmlToCdm(const std::wstring& html) {
     bool listOpen = false, listOl = false;
     int  listNum = 0;
 
+    // Skip-stack: content inside <head>, <nav>, <footer>, <aside> is ignored.
+    std::vector<std::wstring> skipStack;
+    auto isSkipTag = [](const std::wstring& n) {
+        return n==L"head"||n==L"nav"||n==L"footer"||n==L"aside";
+    };
+
     // Buffer modes for contexts that only accept plain text
     enum class BufferMode { None, Heading, ListItem, TableCell };
     BufferMode bufMode = BufferMode::None;
@@ -326,6 +332,14 @@ static cdm::Document HtmlToCdm(const std::wstring& html) {
         if (nm == L"script") { inScript = !isE; continue; }
         if (nm == L"style")  { inStyle  = !isE; continue; }
         if (inScript || inStyle) continue;
+
+        // Skip structural chrome: <head>, <nav>, <footer>, <aside>
+        if (isSkipTag(nm)) {
+            if (!isE) skipStack.push_back(nm);
+            else if (!skipStack.empty() && skipStack.back() == nm) skipStack.pop_back();
+            continue;
+        }
+        if (!skipStack.empty()) continue;
 
         if (!isE) {
             if (nm>=L"h1" && nm<=L"h6" && nm.size()==2 && nm[0]==L'h') {

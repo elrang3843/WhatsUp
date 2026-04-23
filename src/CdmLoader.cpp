@@ -312,17 +312,18 @@ struct CdmLoader {
     // --- Apply to RichEdit ---------------------------------------------------
 
     void Apply(COLORREF textColor) {
-        // 1. Set the SCF_DEFAULT format so that WM_SETTEXT inherits it.
+        // 1. Set plain text first (WM_SETTEXT clears the control).
+        editor->SetText(text);
+
+        // 2. Apply Malgun Gothic + theme colour to ALL text with SCF_ALL.
+        //    Must come AFTER SetText so that the new content gets the font.
         {
             CharFormat def{};
             def.fontName  = L"Malgun Gothic";
-            def.fontSize  = 22;   // 11 pt
+            def.fontSize  = 22;   // 11 pt = 22 half-points
             def.textColor = textColor;
             editor->ApplyCharFormat(def, false);   // SCF_ALL + SCF_DEFAULT
         }
-
-        // 2. Set plain text (inherits SCF_DEFAULT in TM_RICHTEXT mode).
-        editor->SetText(text);
 
         // 3. Apply paragraph formats first (before char, so char can override).
         for (auto& pr : paraRuns) {
