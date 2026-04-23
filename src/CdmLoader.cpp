@@ -277,6 +277,10 @@ struct CdmLoader {
                 // (styled blue+underline by the format parser)
                 (void)v;
             }
+            else if constexpr (std::is_same_v<T, cdm::Field>) {
+                if (!v.resultText.empty())
+                    AppendWStr(std::wstring(v.resultText.begin(), v.resultText.end()));
+            }
             else if constexpr (std::is_same_v<T, cdm::Image>) {
                 int s = richPos;
                 if (v.altText.empty())
