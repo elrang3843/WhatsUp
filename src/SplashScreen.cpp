@@ -13,34 +13,58 @@ UINT_PTR        SplashScreen::s_timerId      = 0;
 ULONG_PTR       SplashScreen::s_gdiplusToken = 0;
 Gdiplus::Image* SplashScreen::s_splashImage  = nullptr;
 
-// ---- Load PNG from embedded RCDATA resource --------------------------------
+// ---- Load PNG: embedded resource first, then file-system fallback ----------
 void SplashScreen::LoadSplashImage() {
+    // ── Try embedded RCDATA resource ─────────────────────────────────────────
+    // NOTE: RCDATA keyword in .rc stores as numeric type RT_RCDATA (10).
+    //       Passing the string L"RCDATA" would look for a custom named type and
+    //       always return NULL. Must use the RT_RCDATA macro.
     HMODULE hMod  = GetModuleHandleW(nullptr);
-    HRSRC   hRsrc = FindResourceW(hMod, MAKEINTRESOURCEW(IDR_SPLASH_PNG), L"RCDATA");
-    if (!hRsrc) return;
+    HRSRC   hRsrc = FindResourceW(hMod, MAKEINTRESOURCEW(IDR_SPLASH_PNG), RT_RCDATA);
+    if (hRsrc) {
+        HGLOBAL hGlob = LoadResource(hMod, hRsrc);
+        DWORD   sz    = SizeofResource(hMod, hRsrc);
+        void*   pSrc  = LockResource(hGlob);
+        if (pSrc && sz > 0) {
+            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, sz);
+            if (hMem) {
+                void* pDst = GlobalLock(hMem);
+                if (pDst) {
+                    CopyMemory(pDst, pSrc, sz);
+                    GlobalUnlock(hMem);
+                    IStream* pStream = nullptr;
+                    if (SUCCEEDED(CreateStreamOnHGlobal(hMem, TRUE, &pStream))) {
+                        s_splashImage = Gdiplus::Image::FromStream(pStream);
+                        pStream->Release();
+                        if (s_splashImage &&
+                            s_splashImage->GetLastStatus() != Gdiplus::Ok) {
+                            delete s_splashImage;
+                            s_splashImage = nullptr;
+                        }
+                    } else {
+                        GlobalFree(hMem);
+                    }
+                } else {
+                    GlobalFree(hMem);
+                }
+            }
+        }
+    }
 
-    HGLOBAL hGlob = LoadResource(hMod, hRsrc);
-    if (!hGlob) return;
-
-    DWORD   sz    = SizeofResource(hMod, hRsrc);
-    void*   pSrc  = LockResource(hGlob);
-    if (!pSrc || sz == 0) return;
-
-    // Copy into a movable global block so CreateStreamOnHGlobal can own it
-    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, sz);
-    if (!hMem) return;
-    void* pDst = GlobalLock(hMem);
-    if (!pDst) { GlobalFree(hMem); return; }
-    CopyMemory(pDst, pSrc, sz);
-    GlobalUnlock(hMem);
-
-    IStream* pStream = nullptr;
-    if (SUCCEEDED(CreateStreamOnHGlobal(hMem, TRUE /*auto-free*/, &pStream))) {
-        s_splashImage = Gdiplus::Image::FromStream(pStream);
-        pStream->Release();
-        if (s_splashImage && s_splashImage->GetLastStatus() != Gdiplus::Ok) {
-            delete s_splashImage;
-            s_splashImage = nullptr;
+    // ── Fallback: load from file system (e.g. resource not embedded yet) ─────
+    if (!s_splashImage) {
+        static const wchar_t* kPaths[] = {
+            L"images\\WhatsUp_start1.png",
+            L"..\\images\\WhatsUp_start1.png",
+            L"WhatsUp_start1.png",
+        };
+        for (auto p : kPaths) {
+            auto* img = Gdiplus::Image::FromFile(p);
+            if (img && img->GetLastStatus() == Gdiplus::Ok) {
+                s_splashImage = img;
+                break;
+            }
+            delete img;
         }
     }
 }
