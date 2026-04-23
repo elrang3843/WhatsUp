@@ -118,6 +118,7 @@ void CdmRenderer::ResetStyle(std::string& out) {
 std::string CdmRenderer::Render(const Document& doc) {
     colorTable_.clear();
     fontTable_.clear();
+    indentLeft_ = 0;
 
     // Pre-populate default fonts so they get stable indices
     FontIndex("Malgun Gothic");  // f0 – default Korean/body font
@@ -197,8 +198,13 @@ void CdmRenderer::WriteBlock(const Block& blk) {
 }
 
 void CdmRenderer::WriteParagraph(const Paragraph& p, bool isList) {
-    rtf_ += "{\\pard";
-    if (isList) rtf_ += "\\li720";
+    rtf_ += "\\pard";
+    int li = (isList ? 720 : 0) + indentLeft_;
+    if (li > 0) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "\\li%d", li);
+        rtf_ += buf;
+    }
     if (p.directStyle.alignment) {
         switch (*p.directStyle.alignment) {
             case Alignment::Center:  rtf_ += "\\qc"; break;
@@ -209,11 +215,11 @@ void CdmRenderer::WriteParagraph(const Paragraph& p, bool isList) {
     }
     rtf_ += ' ';
     WriteInlines(p.inlines);
-    rtf_ += "\\par}\n";
+    rtf_ += "\\par\n";
 }
 
 void CdmRenderer::WriteHeading(const Heading& h) {
-    rtf_ += "{\\pard";
+    rtf_ += "\\pard";
     // Heading sizes: H1=36pt, H2=28pt, H3=24pt, H4=20pt, H5=18pt, H6=16pt (half-points)
     static const int sizes[] = {72, 56, 48, 40, 36, 32};
     int lvl = std::max(1, std::min(h.level, 6)) - 1;
@@ -221,18 +227,18 @@ void CdmRenderer::WriteHeading(const Heading& h) {
     std::snprintf(buf, sizeof(buf), "\\fs%d\\b ", sizes[lvl]);
     rtf_ += buf;
     WriteInlines(h.inlines);
-    rtf_ += "\\par}\n";
+    rtf_ += "\\b0\\fs22\\par\n";
 }
 
 void CdmRenderer::WriteCodeBlock(const CodeBlock& cb) {
-    rtf_ += "{\\pard\\f1\\fs20\\highlight2 "; // Courier New, gray background
+    rtf_ += "\\pard\\f1\\fs20 ";
     rtf_ += EscapeRtfA(cb.code);
-    rtf_ += "\\par}\n";
+    rtf_ += "\\f0\\fs22\\par\n";
 }
 
 void CdmRenderer::WriteHRule() {
-    // Horizontal rule: thin border above empty paragraph
-    rtf_ += "{\\pard\\brdrb\\brdrs\\brdrw10\\brsp20 \\par}\n";
+    // Horizontal rule: thin border below empty paragraph
+    rtf_ += "\\pard\\brdrb\\brdrs\\brdrw10\\brsp20 \\par\n";
 }
 
 void CdmRenderer::WriteTable(const Table& t) {
@@ -283,20 +289,20 @@ void CdmRenderer::WriteTable(const Table& t) {
         rtf_ += "\\row\n";
     }
     // Return to normal paragraph mode
-    rtf_ += "{\\pard\\par}\n";
+    rtf_ += "\\pard\\par\n";
 }
 
 void CdmRenderer::WriteBlockQuote(const BlockQuote& bq) {
-    rtf_ += "{\\pard\\li720\\ri720 ";
+    indentLeft_ += 720;
     for (auto& blk : bq.blocks)
         WriteBlock(*blk);
-    rtf_ += "\\par}\n";
+    indentLeft_ -= 720;
 }
 
 void CdmRenderer::WriteList(const ListBlock& lb) {
     int idx = lb.start;
     for (auto& item : lb.items) {
-        rtf_ += "{\\pard\\li720 ";
+        rtf_ += "\\pard\\li720 ";
         // Bullet / number prefix
         if (lb.type == ListType::Bullet) {
             rtf_ += "\\bullet  ";
@@ -311,7 +317,7 @@ void CdmRenderer::WriteList(const ListBlock& lb) {
                 if constexpr (std::is_same_v<T, Paragraph>)
                     WriteInlines(b.inlines);
             }, blk->value);
-        rtf_ += "\\par}\n";
+        rtf_ += "\\par\n";
     }
 }
 
@@ -347,9 +353,8 @@ void CdmRenderer::WriteInline(const Inline& inl) {
             rtf_ += '}';
         }
         else if constexpr (std::is_same_v<T, Hyperlink>) {
-            // Just emit as colored underlined text (no clickable link in RichEdit basic mode)
-            rtf_ += "{\\ul\\cf1 ";
-            rtf_ += '}';
+            // Display text is a sibling Text node; Hyperlink just carries href metadata
+            (void)v;
         }
         else if constexpr (std::is_same_v<T, Image>) {
             rtf_ += "[image]";

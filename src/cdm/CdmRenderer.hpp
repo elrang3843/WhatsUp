@@ -16,6 +16,8 @@ private:
     std::vector<uint32_t>    colorTable_;  // 0xRRGGBB
     std::vector<std::string> fontTable_;
 
+    int indentLeft_ = 0; // accumulated left indent in twips (for blockquotes)
+
     int  ColorIndex(const Color& c);
     int  FontIndex(const std::string& family);
 

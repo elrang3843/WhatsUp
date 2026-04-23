@@ -168,11 +168,28 @@ std::string Editor::GetRtf() const {
 }
 
 void Editor::SetRtf(const std::string& rtf) {
+    {
+        // Log the RTF header for diagnosis (first 120 chars)
+        wchar_t dbg[256];
+        size_t  preview = (rtf.size() < 120) ? rtf.size() : 120;
+        wchar_t head[128] = {};
+        for (size_t i = 0; i < preview; ++i)
+            head[i] = static_cast<wchar_t>(static_cast<unsigned char>(rtf[i]));
+        swprintf_s(dbg, L"[WhatsUp] SetRtf %zu bytes: %s", rtf.size(), head);
+        RichEditLog(dbg);
+    }
+
     RtfReadCtx ctx{ &rtf, 0 };
     EDITSTREAM es{};
     es.dwCookie    = reinterpret_cast<DWORD_PTR>(&ctx);
     es.pfnCallback = RtfReadCallback;
-    SendMessageW(m_hwnd, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&es));
+    LRESULT res = SendMessageW(m_hwnd, EM_STREAMIN, SF_RTF, reinterpret_cast<LPARAM>(&es));
+    {
+        wchar_t dbg[128];
+        swprintf_s(dbg, L"[WhatsUp] EM_STREAMIN result=%lld dwError=%lu consumed=%zu",
+                   static_cast<long long>(res), es.dwError, ctx.pos);
+        RichEditLog(dbg);
+    }
     SetModified(false);
 }
 
