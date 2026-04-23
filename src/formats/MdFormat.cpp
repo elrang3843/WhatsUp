@@ -1,5 +1,6 @@
 #include "MdFormat.h"
 #include "TxtFormat.h"
+#include "../cdm/document_builder.hpp"
 #include <sstream>
 #include <vector>
 #include <algorithm>
@@ -7,50 +8,45 @@
 static std::wstring ReadTextFile(const std::wstring& path) {
     TxtFormat txt; Document dummy;
     auto r = txt.Load(path, dummy);
-    return r.ok ? r.content : L"";
+    // TxtFormat now returns CDM; reconstruct wstring from CDM paragraphs
+    if (!r.ok) return {};
+    if (!r.cdmDoc.sections.empty()) {
+        std::wstring out;
+        for (auto& sec : r.cdmDoc.sections) {
+            for (auto& blk : sec->blocks) {
+                std::visit([&](auto& b) {
+                    using T = std::decay_t<decltype(b)>;
+                    if constexpr (std::is_same_v<T, cdm::Paragraph>) {
+                        for (auto& inl : b.inlines) {
+                            if (auto* t = std::get_if<cdm::Text>(&inl->value))
+                                for (char32_t c : t->text) out += static_cast<wchar_t>(c);
+                        }
+                        out += L'\n';
+                    }
+                }, blk->value);
+            }
+        }
+        if (!out.empty() && out.back() == L'\n') out.pop_back();
+        return out;
+    }
+    return r.content;
 }
 
-// ── RTF helpers ───────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
-static std::string RtfEnc(const std::wstring& ws) {
-    std::string s;
-    s.reserve(ws.size() * 2);
-    for (wchar_t c : ws) {
-        if      (c == L'\\') s += "\\\\";
-        else if (c == L'{')  s += "\\{";
-        else if (c == L'}')  s += "\\}";
-        else if (c == L'\r') {}
-        else if (c < 128)    s += static_cast<char>(c);
-        else {
-            s += "\\u";
-            s += std::to_string(static_cast<int>(static_cast<int16_t>(c)));
-            s += "?";
-        }
-    }
+static std::u32string ToU32(const std::wstring& ws, size_t from = 0, size_t len = std::wstring::npos) {
+    std::u32string s;
+    auto end = (len == std::wstring::npos) ? ws.size() : std::min(from + len, ws.size());
+    for (size_t i = from; i < end; ++i)
+        s += static_cast<char32_t>(static_cast<uint16_t>(ws[i]));
     return s;
 }
 
-static const std::string kRtfHeader =
-    "{\\rtf1\\ansi\\deff2\n"
-    "{\\fonttbl\n"
-    "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
-    "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
-    "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
-    "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
-    "}\n"
-    "\\f2\\fs22\\pard\\ql\n";
-
-// ── HTML helpers ───────────────────────────────────────────────────────────────
-
-// A line is an HTML block if it starts with '<' followed by a letter, '/', or '!'
 static bool IsHtmlBlock(const std::wstring& line) {
     return line.size() >= 2 && line[0] == L'<' &&
            (iswalpha(line[1]) || line[1] == L'/' || line[1] == L'!');
 }
 
-// ── Table helpers ──────────────────────────────────────────────────────────────
-
-// Separator row: only |, -, :, and spaces
 static bool IsTableSep(const std::wstring& line) {
     if (line.empty() || line[0] != L'|') return false;
     for (wchar_t c : line)
@@ -79,91 +75,128 @@ static std::vector<std::wstring> SplitTableRow(const std::wstring& line) {
     return cells;
 }
 
-// ── Inline Markdown → RTF ─────────────────────────────────────────────────────
+// ── Inline MD → CDM ───────────────────────────────────────────────────────────
 
-std::string MdFormat::InlineToRtf(const std::wstring& line) {
-    std::string out;
-    for (size_t i = 0; i < line.size(); ) {
+static void ParseMdInlines(const std::wstring& s, size_t from, size_t to,
+                             cdm::DocumentBuilder& b);
+
+static void AddWStr(const std::wstring& ws, size_t from, size_t len,
+                    cdm::DocumentBuilder& b)
+{
+    if (len == 0) return;
+    b.AddText(ToU32(ws, from, len));
+}
+
+static void ParseMdInlines(const std::wstring& s, size_t from, size_t to,
+                             cdm::DocumentBuilder& b)
+{
+    size_t textStart = from;
+    size_t i = from;
+
+    auto flushText = [&]() {
+        if (textStart < i) AddWStr(s, textStart, i - textStart, b);
+        textStart = i;
+    };
+
+    while (i < to) {
         // Bold: **text** or __text__
-        if (i + 1 < line.size() &&
-            ((line[i]==L'*' && line[i+1]==L'*') || (line[i]==L'_' && line[i+1]==L'_'))) {
-            wchar_t d = line[i];
+        if (i + 1 < to &&
+            ((s[i]==L'*' && s[i+1]==L'*') || (s[i]==L'_' && s[i+1]==L'_'))) {
+            wchar_t d = s[i];
             std::wstring close(2, d);
-            size_t end = line.find(close, i + 2);
-            if (end != std::wstring::npos) {
-                out += "{\\b " + InlineToRtf(line.substr(i+2, end-i-2)) + "}";
-                i = end + 2; continue;
+            size_t end = s.find(close, i + 2);
+            if (end != std::wstring::npos && end + 1 < to) {
+                flushText();
+                b.BeginStrong();
+                ParseMdInlines(s, i + 2, end, b);
+                b.EndStrong();
+                i = end + 2; textStart = i; continue;
             }
         }
-        // Italic: *text* or _text_ (single)
-        if ((line[i]==L'*' || line[i]==L'_') &&
-            (i+1 >= line.size() || line[i+1] != line[i])) {
-            wchar_t d = line[i];
-            size_t end = line.find(d, i + 1);
-            if (end != std::wstring::npos && (end+1 >= line.size() || line[end+1] != d)) {
-                out += "{\\i " + InlineToRtf(line.substr(i+1, end-i-1)) + "}";
-                i = end + 1; continue;
+        // Italic: *text* or _text_
+        if ((s[i]==L'*' || s[i]==L'_') && (i+1 >= to || s[i+1] != s[i])) {
+            wchar_t d = s[i];
+            size_t end = s.find(d, i + 1);
+            if (end != std::wstring::npos && end < to && (end+1 >= to || s[end+1] != d)) {
+                flushText();
+                b.BeginEmphasis();
+                ParseMdInlines(s, i + 1, end, b);
+                b.EndEmphasis();
+                i = end + 1; textStart = i; continue;
             }
         }
         // Inline code: `text`
-        if (line[i] == L'`') {
-            size_t end = line.find(L'`', i + 1);
-            if (end != std::wstring::npos) {
-                out += "{\\f3 " + RtfEnc(line.substr(i+1, end-i-1)) + "}";
-                i = end + 1; continue;
+        if (s[i] == L'`') {
+            size_t end = s.find(L'`', i + 1);
+            if (end != std::wstring::npos && end < to) {
+                flushText();
+                cdm::TextStyle codeStyle;
+                codeStyle.fontFamily = "Courier New";
+                b.BeginSpan(codeStyle);
+                AddWStr(s, i + 1, end - i - 1, b);
+                b.EndSpan();
+                i = end + 1; textStart = i; continue;
             }
         }
-        // Image: ![alt](url) → italic [alt] (can't embed remote images)
-        if (line[i] == L'!' && i+1 < line.size() && line[i+1] == L'[') {
-            size_t j = line.find(L']', i + 2);
-            if (j != std::wstring::npos && j+1 < line.size() && line[j+1] == L'(') {
-                size_t k = line.find(L')', j + 2);
+        // Image: ![alt](url) → italic [alt]
+        if (s[i] == L'!' && i + 1 < to && s[i+1] == L'[') {
+            size_t j = s.find(L']', i + 2);
+            if (j != std::wstring::npos && j + 1 < to && s[j+1] == L'(') {
+                size_t k = s.find(L')', j + 2);
                 if (k != std::wstring::npos) {
-                    std::wstring alt = line.substr(i+2, j-i-2);
-                    if (!alt.empty())
-                        out += "{\\i [" + RtfEnc(alt) + "]}";
-                    i = k + 1; continue;
+                    flushText();
+                    if (j > i + 2) {
+                        b.BeginEmphasis();
+                        b.AddText(U"[");
+                        AddWStr(s, i + 2, j - i - 2, b);
+                        b.AddText(U"]");
+                        b.EndEmphasis();
+                    }
+                    i = k + 1; textStart = i; continue;
                 }
             }
         }
         // Link: [text](url) → underlined text
-        if (line[i] == L'[') {
-            size_t j = line.find(L']', i + 1);
-            if (j != std::wstring::npos && j+1 < line.size() && line[j+1] == L'(') {
-                size_t k = line.find(L')', j + 2);
+        if (s[i] == L'[') {
+            size_t j = s.find(L']', i + 1);
+            if (j != std::wstring::npos && j + 1 < to && s[j+1] == L'(') {
+                size_t k = s.find(L')', j + 2);
                 if (k != std::wstring::npos) {
-                    out += "{\\ul " + InlineToRtf(line.substr(i+1, j-i-1)) + "}";
-                    i = k + 1; continue;
+                    flushText();
+                    b.BeginUnderline();
+                    ParseMdInlines(s, i + 1, j, b);
+                    b.EndUnderline();
+                    i = k + 1; textStart = i; continue;
                 }
             }
         }
-        // Inline HTML tag: skip (letter/slash/bang after '<')
-        if (line[i] == L'<' && i+1 < line.size() &&
-            (iswalpha(line[i+1]) || line[i+1] == L'/' || line[i+1] == L'!')) {
-            size_t end = line.find(L'>', i + 1);
-            if (end != std::wstring::npos) {
-                i = end + 1; continue;
+        // Inline HTML tag: skip
+        if (s[i] == L'<' && i + 1 < to &&
+            (iswalpha(s[i+1]) || s[i+1] == L'/' || s[i+1] == L'!')) {
+            size_t end = s.find(L'>', i + 1);
+            if (end != std::wstring::npos && end < to) {
+                flushText();
+                i = end + 1; textStart = i; continue;
             }
         }
-        // Regular character
-        wchar_t ch = line[i++];
-        if      (ch == L'\\') out += "\\\\";
-        else if (ch == L'{')  out += "\\{";
-        else if (ch == L'}')  out += "\\}";
-        else if (ch < 128)    out += static_cast<char>(ch);
-        else {
-            out += "\\u";
-            out += std::to_string(static_cast<int>(static_cast<int16_t>(ch)));
-            out += "?";
-        }
+        ++i;
     }
-    return out;
+    flushText();
 }
 
-// ── Markdown → RTF ────────────────────────────────────────────────────────────
+// Add a paragraph from an MD line with inline parsing
+static void AddMdParagraph(cdm::DocumentBuilder& b, const std::wstring& line) {
+    b.BeginParagraph();
+    ParseMdInlines(line, 0, line.size(), b);
+    b.EndParagraph();
+}
 
-std::string MdFormat::MdToRtf(const std::wstring& md) {
-    std::string body;
+// ── Markdown → CDM ───────────────────────────────────────────────────────────
+
+static cdm::Document MdToCdm(const std::wstring& md) {
+    cdm::DocumentBuilder b;
+    b.SetOriginalFormat(cdm::FileFormat::MD);
+    b.BeginSection();
 
     std::vector<std::wstring> lines;
     {
@@ -176,42 +209,24 @@ std::string MdFormat::MdToRtf(const std::wstring& md) {
     }
 
     bool inFence = false;
+    std::string fenceCode;
+    std::string fenceLang;
     std::vector<std::vector<std::wstring>> tableRows;
     bool inTable = false;
 
     auto flushTable = [&]() {
         if (tableRows.empty()) { inTable = false; return; }
-        size_t cols = 0;
-        for (auto& r : tableRows) cols = std::max(cols, r.size());
-        if (cols > 0) {
-            int cellW = 9000 / static_cast<int>(cols);
-            bool hdr = true;
-            for (auto& row : tableRows) {
-                body += "\\trowd\\trgaph108\\trleft0\n";
-                int cumX = 0;
-                for (size_t c = 0; c < cols; c++) {
-                    cumX += cellW;
-                    body += "\\clbrdrt\\brdrs\\brdrw5"
-                            "\\clbrdrb\\brdrs\\brdrw5"
-                            "\\clbrdrl\\brdrs\\brdrw5"
-                            "\\clbrdrr\\brdrs\\brdrw5\\cellx";
-                    body += std::to_string(cumX);
-                }
-                body += "\n";
-                for (size_t c = 0; c < cols; c++) {
-                    const std::wstring& text = (c < row.size()) ? row[c] : L"";
-                    body += "\\pard\\intbl";
-                    if (hdr) body += "\\b";
-                    body += " ";
-                    body += InlineToRtf(text);
-                    if (hdr) body += "\\b0";
-                    body += "\\cell\n";
-                }
-                body += "\\row\n";
-                hdr = false;
-            }
-            body += "\\pard\\ql\n";
+        b.BeginTable();
+        bool isHeader = true;
+        for (auto& row : tableRows) {
+            b.BeginTableRow();
+            for (auto& cell : row)
+                b.AddTableCell(ToU32(cell));
+            b.EndTableRow();
+            (void)isHeader;
+            isHeader = false;
         }
+        b.EndTable();
         tableRows.clear();
         inTable = false;
     };
@@ -220,11 +235,23 @@ std::string MdFormat::MdToRtf(const std::wstring& md) {
         // Fenced code block
         if (line.size() >= 3 && line.substr(0, 3) == L"```") {
             if (inTable) flushTable();
-            if (!inFence) { body += "\\pard\\ql\\f3 "; inFence = true; }
-            else          { body += "\\f2\\fs22\\par\n"; inFence = false; }
+            if (!inFence) {
+                inFence = true;
+                fenceCode.clear();
+                std::wstring lang = line.substr(3);
+                fenceLang = std::string(lang.begin(), lang.end());
+            } else {
+                b.AddCodeBlock(fenceCode, fenceLang);
+                fenceCode.clear(); fenceLang.clear();
+                inFence = false;
+            }
             continue;
         }
-        if (inFence) { body += RtfEnc(line) + "\\line\n"; continue; }
+        if (inFence) {
+            for (wchar_t c : line) fenceCode += static_cast<char>(c < 128 ? c : '?');
+            fenceCode += '\n';
+            continue;
+        }
 
         // Skip standalone HTML block lines
         if (IsHtmlBlock(line)) {
@@ -242,42 +269,47 @@ std::string MdFormat::MdToRtf(const std::wstring& md) {
             flushTable();
         }
 
-        // Empty line → paragraph break
-        if (line.empty()) { body += "\\pard\\ql\\par\n"; continue; }
+        // Empty line → empty paragraph
+        if (line.empty()) {
+            b.AddParagraph(U"");
+            continue;
+        }
 
         // ATX headings: # ## ###
-        size_t h = 0;
-        while (h < line.size() && line[h] == L'#') h++;
-        if (h > 0 && h < line.size() && line[h] == L' ') {
-            static const int hSz[] = {0,36,28,24,22,20,18};
-            int sz = hSz[std::min(h, (size_t)6)];
-            body += "\\pard\\ql\\b\\fs" + std::to_string(sz) + " ";
-            body += InlineToRtf(line.substr(h + 1));
-            body += "\\b0\\fs22\\par\n";
-            continue;
+        {
+            size_t h = 0;
+            while (h < line.size() && line[h] == L'#') h++;
+            if (h > 0 && h < line.size() && line[h] == L' ') {
+                b.AddHeading(static_cast<int>(std::min(h, (size_t)6)),
+                             ToU32(line, h + 1));
+                continue;
+            }
         }
 
         // Horizontal rule: --- *** ___
         if (line == L"---" || line == L"***" || line == L"___" ||
             line == L"- - -" || line == L"* * *" || line == L"_ _ _") {
-            body += "\\pard\\ql\\brdrb\\brdrs\\brdrw10 \\par\n";
+            b.AddHorizontalRule();
             continue;
         }
 
         // Block quote: > text
         if (!line.empty() && line[0] == L'>') {
-            body += "\\pard\\ql\\li360 ";
-            body += InlineToRtf(line.size() > 2 ? line.substr(2) : L"");
-            body += "\\par\n";
+            b.BeginBlockQuote();
+            b.BeginParagraph();
+            ParseMdInlines(line, line.size() > 2 ? 2 : line.size(), line.size(), b);
+            b.EndParagraph();
+            b.EndBlockQuote();
             continue;
         }
 
         // Unordered list: - * +
         if (line.size() >= 2 &&
             (line[0]==L'-'||line[0]==L'*'||line[0]==L'+') && line[1]==L' ') {
-            body += "\\pard\\ql\\fi-180\\li360 \\bullet  ";
-            body += InlineToRtf(line.substr(2));
-            body += "\\par\n";
+            // Use a single-item list for simplicity (each bullet is its own list)
+            b.BeginList(cdm::ListType::Bullet);
+            b.AddListItem(ToU32(line, 2));
+            b.EndList();
             continue;
         }
 
@@ -288,25 +320,24 @@ std::string MdFormat::MdToRtf(const std::wstring& md) {
                 bool ok = true;
                 for (size_t k = 0; k < dot; k++)
                     if (!iswdigit(line[k])) { ok = false; break; }
-                if (ok && dot+1 < line.size() && line[dot+1] == L' ') {
-                    body += "\\pard\\ql\\li360 ";
-                    body += RtfEnc(line.substr(0, dot+1)) + " ";
-                    body += InlineToRtf(line.substr(dot + 2));
-                    body += "\\par\n";
+                if (ok && dot + 1 < line.size() && line[dot+1] == L' ') {
+                    b.BeginList(cdm::ListType::Numbered);
+                    b.AddListItem(ToU32(line, dot + 2));
+                    b.EndList();
                     continue;
                 }
             }
         }
 
-        // Normal paragraph
-        body += "\\pard\\ql ";
-        body += InlineToRtf(line);
-        body += "\\par\n";
+        // Normal paragraph with inline formatting
+        AddMdParagraph(b, line);
     }
 
     if (inTable) flushTable();
+    if (inFence && !fenceCode.empty()) b.AddCodeBlock(fenceCode, fenceLang);
 
-    return kRtfHeader + body + "}";
+    b.EndSection();
+    return b.MoveBuild();
 }
 
 // ── Public interface ───────────────────────────────────────────────────────────
@@ -316,17 +347,15 @@ FormatResult MdFormat::Load(const std::wstring& path, Document& /*doc*/) {
     std::wstring md = ReadTextFile(path);
     if (md.empty()) { r.error = L"Cannot read Markdown file."; return r; }
 
-    std::string rtf = MdToRtf(md);
-    r.content = std::wstring(rtf.begin(), rtf.end());
-    r.rtf     = true;
-    r.ok      = true;
+    r.cdmDoc = MdToCdm(md);
+    r.ok     = true;
     return r;
 }
 
 FormatResult MdFormat::Save(const std::wstring& path,
-                             const std::wstring& content,
-                             const std::string&  /*rtf*/,
-                             Document& /*doc*/) {
+                              const std::wstring& content,
+                              const std::string&  /*rtf*/,
+                              Document& /*doc*/) {
     TxtFormat txt; Document dummy;
     return txt.Save(path, content, "", dummy);
 }

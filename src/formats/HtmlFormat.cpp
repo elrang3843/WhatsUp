@@ -1,15 +1,34 @@
 #include "HtmlFormat.h"
-#include "TxtFormat.h"
+#include "../cdm/document_builder.hpp"
 #include <algorithm>
 #include <sstream>
 #include <vector>
 #include <cstdint>
 #include <map>
 
-static std::wstring ReadTextFile(const std::wstring& path) {
-    TxtFormat txt; Document dummy;
-    auto r = txt.Load(path, dummy);
-    return r.ok ? r.content : L"";
+static std::wstring ReadFileAsText(const std::wstring& path) {
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return {};
+    DWORD sz = GetFileSize(h, nullptr);
+    std::vector<uint8_t> buf(sz);
+    DWORD rd = 0;
+    ReadFile(h, buf.data(), sz, &rd, nullptr);
+    CloseHandle(h);
+    buf.resize(rd);
+    if (buf.size() >= 2 && buf[0] == 0xFF && buf[1] == 0xFE)
+        return std::wstring(reinterpret_cast<const wchar_t*>(buf.data() + 2),
+                            (buf.size() - 2) / 2);
+    size_t start = (buf.size() >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) ? 3 : 0;
+    int needed = MultiByteToWideChar(CP_UTF8, 0,
+        reinterpret_cast<LPCCH>(buf.data() + start),
+        static_cast<int>(buf.size() - start), nullptr, 0);
+    if (needed <= 0) return {};
+    std::wstring ws(needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0,
+        reinterpret_cast<LPCCH>(buf.data() + start),
+        static_cast<int>(buf.size() - start), ws.data(), needed);
+    return ws;
 }
 
 // ── Color helpers ─────────────────────────────────────────────────────────────
@@ -155,7 +174,220 @@ static std::wstring DecodeEntities(const std::wstring& text) {
     return r;
 }
 
-// ── HTML → RTF converter ──────────────────────────────────────────────────────
+// ── HTML → CDM converter ─────────────────────────────────────────────────────
+
+static std::u32string WToU32(const std::wstring& ws) {
+    std::u32string s; s.reserve(ws.size());
+    for (wchar_t c : ws) s += static_cast<char32_t>(static_cast<uint16_t>(c));
+    return s;
+}
+
+static cdm::Color HexToColor(const std::wstring& hex) {
+    if (hex.size() != 6) return {};
+    try {
+        auto r = static_cast<uint8_t>(std::stoul(std::string(hex.begin(), hex.begin()+2), nullptr, 16));
+        auto g = static_cast<uint8_t>(std::stoul(std::string(hex.begin()+2, hex.begin()+4), nullptr, 16));
+        auto b2= static_cast<uint8_t>(std::stoul(std::string(hex.begin()+4, hex.end()), nullptr, 16));
+        return cdm::Color::Make(r, g, b2);
+    } catch (...) { return {}; }
+}
+
+static cdm::Document HtmlToCdm(const std::wstring& html) {
+    cdm::DocumentBuilder b;
+    b.SetOriginalFormat(cdm::FileFormat::HTML);
+    b.BeginSection();
+
+    bool inScript = false, inStyle = false;
+    bool paraOpen = false;
+    bool inTable = false;
+    bool listOpen = false, listOl = false;
+    int  listNum = 0;
+
+    // Buffer modes for contexts that only accept plain text
+    enum class BufferMode { None, Heading, ListItem, TableCell };
+    BufferMode bufMode = BufferMode::None;
+    int  headingLevel = 0;
+    std::wstring textBuf;
+
+    // Inline style accumulators
+    int boldD = 0, italicD = 0, underD = 0, codeD = 0;
+    struct ColorEntry { cdm::Color c; bool valid; };
+    std::vector<ColorEntry> colorStack;
+
+    auto currentStyle = [&]() {
+        cdm::TextStyle s;
+        if (boldD > 0)   s.bold   = true;
+        if (italicD > 0) s.italic = true;
+        if (underD > 0)  s.underline = cdm::UnderlineStyle::Single;
+        if (codeD > 0)   s.fontFamily = std::string("Courier New");
+        for (auto it = colorStack.rbegin(); it != colorStack.rend(); ++it)
+            if (it->valid) { s.color = it->c; break; }
+        return s;
+    };
+
+    auto hasStyle = [&]() {
+        return boldD > 0 || italicD > 0 || underD > 0 || codeD > 0 ||
+               (!colorStack.empty() && colorStack.back().valid);
+    };
+
+    auto ensureParaOpen = [&]() {
+        if (!paraOpen && bufMode == BufferMode::None) {
+            b.BeginParagraph(); paraOpen = true;
+        }
+    };
+
+    auto closePara = [&]() {
+        if (paraOpen) { b.EndParagraph(); paraOpen = false; }
+    };
+
+    auto flushBuffer = [&]() {
+        switch (bufMode) {
+            case BufferMode::Heading:
+                b.AddHeading(headingLevel, WToU32(textBuf));
+                break;
+            case BufferMode::ListItem:
+                if (!listOpen) {
+                    b.BeginList(listOl ? cdm::ListType::Numbered : cdm::ListType::Bullet,
+                                listNum > 0 ? listNum : 1);
+                    listOpen = true;
+                }
+                b.AddListItem(WToU32(textBuf));
+                break;
+            case BufferMode::TableCell:
+                b.AddTableCell(WToU32(textBuf));
+                break;
+            default: break;
+        }
+        textBuf.clear();
+        bufMode = BufferMode::None;
+    };
+
+    auto closeList = [&]() {
+        if (listOpen) { b.EndList(); listOpen = false; }
+    };
+
+    auto addTextContent = [&](const std::wstring& text) {
+        if (text.empty()) return;
+        if (bufMode != BufferMode::None) {
+            textBuf += text;
+            return;
+        }
+        ensureParaOpen();
+        auto st = currentStyle();
+        auto u32 = WToU32(text);
+        if (hasStyle()) b.AddStyledText(u32, st);
+        else            b.AddText(u32);
+    };
+
+    size_t pos = 0;
+    while (pos < html.size()) {
+        if (html[pos] != L'<') {
+            if (!inScript && !inStyle) {
+                size_t end = html.find(L'<', pos);
+                if (end == std::wstring::npos) end = html.size();
+                std::wstring raw = DecodeEntities(html.substr(pos, end - pos));
+                std::wstring norm;
+                bool lastWs = false;
+                for (wchar_t c : raw) {
+                    if (iswspace(c) && c != L'\n') {
+                        if (!lastWs && !norm.empty()) { norm += L' '; lastWs = true; }
+                    } else if (c != L'\n') {
+                        norm += c; lastWs = false;
+                    }
+                }
+                addTextContent(norm);
+                pos = end;
+            } else {
+                ++pos;
+            }
+            continue;
+        }
+
+        size_t lt = pos;
+        size_t gt = html.find(L'>', lt);
+        if (gt == std::wstring::npos) { ++pos; continue; }
+
+        std::wstring raw = html.substr(lt + 1, gt - lt - 1);
+        pos = gt + 1;
+        if (raw.empty()) continue;
+
+        if (raw.size() >= 3 && raw.substr(0, 3) == L"!--") {
+            size_t ce = html.find(L"-->", lt);
+            if (ce != std::wstring::npos) pos = ce + 3;
+            continue;
+        }
+
+        bool isE = (!raw.empty() && raw[0] == L'/');
+        std::wstring nm;
+        { size_t i = isE ? 1 : 0;
+          while (i < raw.size() && raw[i] != L' ' && raw[i] != L'/' && raw[i] != L'\t')
+              nm += towlower(raw[i++]); }
+
+        if (nm == L"script") { inScript = !isE; continue; }
+        if (nm == L"style")  { inStyle  = !isE; continue; }
+        if (inScript || inStyle) continue;
+
+        if (!isE) {
+            if (nm>=L"h1" && nm<=L"h6" && nm.size()==2 && nm[0]==L'h') {
+                closePara(); flushBuffer(); closeList();
+                headingLevel = nm[1] - L'0';
+                bufMode = BufferMode::Heading; textBuf.clear();
+            }
+            else if (nm==L"p"||nm==L"div") { closePara(); flushBuffer(); closeList(); }
+            else if (nm==L"br") {
+                if (bufMode != BufferMode::None) textBuf += L'\n';
+                else if (paraOpen) b.AddLineBreak();
+            }
+            else if (nm==L"hr") { closePara(); b.AddHorizontalRule(); }
+            else if (nm==L"ul") { closePara(); flushBuffer(); listOl = false; }
+            else if (nm==L"ol") { closePara(); flushBuffer(); listOl = true; listNum = 0; }
+            else if (nm==L"li") {
+                flushBuffer();
+                bufMode = BufferMode::ListItem; textBuf.clear(); listNum++;
+            }
+            else if (nm==L"pre"||nm==L"code"||nm==L"tt") { codeD++; }
+            else if (nm==L"b"||nm==L"strong") { boldD++;   }
+            else if (nm==L"i"||nm==L"em")     { italicD++; }
+            else if (nm==L"u"||nm==L"a")      { underD++;  }
+            else if (nm==L"span"||nm==L"font") {
+                std::wstring hex;
+                if (nm == L"font") { auto cv = HtmlAttr(raw, L"color"); if (!cv.empty()) hex = ParseCssColor(cv); }
+                if (hex.empty())   { auto sv = HtmlAttr(raw, L"style"); if (!sv.empty()) hex = ParseCssColor(CssProp(sv, L"color")); }
+                if (!hex.empty()) colorStack.push_back({HexToColor(hex), true});
+                else              colorStack.push_back({{}, false});
+            }
+            else if (nm==L"table") { closePara(); flushBuffer(); closeList(); b.BeginTable(); inTable = true; }
+            else if (nm==L"tr")    { b.BeginTableRow(); }
+            else if (nm==L"td")    { bufMode = BufferMode::TableCell; textBuf.clear(); }
+            else if (nm==L"th")    { bufMode = BufferMode::TableCell; textBuf.clear(); }
+            else if (nm==L"blockquote") { closePara(); b.BeginBlockQuote(); }
+        } else {
+            if (nm.size()==2 && nm[0]==L'h' && nm[1]>=L'1' && nm[1]<=L'6') {
+                flushBuffer();
+            }
+            else if (nm==L"p"||nm==L"div") { closePara(); }
+            else if (nm==L"li")  { flushBuffer(); }
+            else if (nm==L"ul"||nm==L"ol") { flushBuffer(); closeList(); }
+            else if (nm==L"pre"||nm==L"code"||nm==L"tt") { codeD = std::max(0, codeD-1); }
+            else if (nm==L"b"||nm==L"strong") { boldD   = std::max(0, boldD-1);   }
+            else if (nm==L"i"||nm==L"em")     { italicD = std::max(0, italicD-1); }
+            else if (nm==L"u"||nm==L"a")      { underD  = std::max(0, underD-1);  }
+            else if (nm==L"span"||nm==L"font") { if (!colorStack.empty()) colorStack.pop_back(); }
+            else if (nm==L"table") { b.EndTable(); inTable = false; }
+            else if (nm==L"tr")    { b.EndTableRow(); }
+            else if (nm==L"td"||nm==L"th") { flushBuffer(); }
+            else if (nm==L"blockquote") { closePara(); b.EndBlockQuote(); }
+        }
+    }
+
+    closePara();
+    flushBuffer();
+    closeList();
+    b.EndSection();
+    return b.MoveBuild();
+}
+
+// ── HTML → RTF converter (kept for reference / fallback) ─────────────────────
 
 static std::string HtmlToRtf(const std::wstring& html) {
     std::string body;
@@ -387,13 +619,11 @@ std::wstring HtmlFormat::WrapHtml(const std::wstring& text, const DocProperties&
 
 FormatResult HtmlFormat::Load(const std::wstring& path, Document& /*doc*/) {
     FormatResult r;
-    std::wstring html = ReadTextFile(path);
+    std::wstring html = ReadFileAsText(path);
     if (html.empty()) { r.error = L"Cannot read HTML file."; return r; }
 
-    std::string rtf = HtmlToRtf(html);
-    r.content = std::wstring(rtf.begin(), rtf.end());
-    r.rtf     = true;
-    r.ok      = true;
+    r.cdmDoc = HtmlToCdm(html);
+    r.ok     = true;
     return r;
 }
 

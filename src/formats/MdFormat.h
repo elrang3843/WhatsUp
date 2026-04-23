@@ -9,10 +9,4 @@ public:
                       const std::string&  rtfContent,
                       Document&           doc) override;
     bool CanWrite() const override { return true; }
-
-private:
-    // Convert Markdown source to RTF (headings, bold, italic, code)
-    static std::string MdToRtf(const std::wstring& md);
-    // Convert inline Markdown spans to RTF
-    static std::string InlineToRtf(const std::wstring& line);
 };

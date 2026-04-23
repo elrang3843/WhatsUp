@@ -1,5 +1,6 @@
 #include "DocFormat.h"
 #include "../i18n/Localization.h"
+#include "../cdm/document_builder.hpp"
 #include <objbase.h>
 #include <objidl.h>
 #include <sstream>
@@ -181,10 +182,21 @@ FormatResult DocFormat_::Load(const std::wstring& path, Document& doc) {
         r.error = L"DOC text extraction failed. Only Word 97-2003 Unicode documents are supported (read-only).";
         return r;
     }
-    std::string rtf = TextToRtf(text);
-    r.content = std::wstring(rtf.begin(), rtf.end());
-    r.rtf     = true;
-    r.ok      = true;
+
+    cdm::DocumentBuilder b;
+    b.SetOriginalFormat(cdm::FileFormat::DOC);
+    b.BeginSection();
+    std::wistringstream in(text);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        std::u32string u32;
+        for (wchar_t c : line) u32 += static_cast<char32_t>(static_cast<uint16_t>(c));
+        b.AddParagraph(u32);
+    }
+    b.EndSection();
+    r.cdmDoc = b.MoveBuild();
+    r.ok     = true;
     return r;
 }
 

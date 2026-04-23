@@ -1,5 +1,6 @@
 #include "HwpxFormat.h"
 #include "ZipReader.h"
+#include "../cdm/document_builder.hpp"
 #include <sstream>
 #include <algorithm>
 
@@ -263,10 +264,21 @@ FormatResult HwpxFormat::Load(const std::wstring& path, Document& doc) {
     std::wstring text = combined.str();
     if (text.empty()) { r.error = L"HWPX text extraction failed."; return r; }
 
-    std::string rtf = TextToRtf(text);
-    r.content = std::wstring(rtf.begin(), rtf.end());
-    r.rtf     = true;
-    r.ok      = true;
+    // Convert extracted plain text to CDM
+    cdm::DocumentBuilder b;
+    b.SetOriginalFormat(cdm::FileFormat::HWPX);
+    b.BeginSection();
+    std::wistringstream in(text);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        std::u32string u32;
+        for (wchar_t c : line) u32 += static_cast<char32_t>(static_cast<uint16_t>(c));
+        b.AddParagraph(u32);
+    }
+    b.EndSection();
+    r.cdmDoc = b.MoveBuild();
+    r.ok     = true;
     return r;
 }
 

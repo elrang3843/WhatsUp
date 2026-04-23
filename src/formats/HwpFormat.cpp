@@ -1,5 +1,6 @@
 #include "HwpFormat.h"
 #include "../i18n/Localization.h"
+#include "../cdm/document_builder.hpp"
 #include <objbase.h>
 #include <objidl.h>
 #include <sstream>
@@ -248,10 +249,20 @@ FormatResult HwpFormat::Load(const std::wstring& path, Document& doc) {
         return r;
     }
 
-    std::string rtf = TextToRtf(result);
-    r.content = std::wstring(rtf.begin(), rtf.end());
-    r.rtf     = true;
-    r.ok      = true;
+    cdm::DocumentBuilder b;
+    b.SetOriginalFormat(cdm::FileFormat::HWP);
+    b.BeginSection();
+    std::wistringstream in(result);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        std::u32string u32;
+        for (wchar_t c : line) u32 += static_cast<char32_t>(static_cast<uint16_t>(c));
+        b.AddParagraph(u32);
+    }
+    b.EndSection();
+    r.cdmDoc = b.MoveBuild();
+    r.ok     = true;
     return r;
 }
 

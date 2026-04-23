@@ -3,6 +3,7 @@
 #include "resource.h"
 #include "i18n/Localization.h"
 #include "formats/FormatManager.h"
+#include "cdm/CdmRenderer.hpp"
 #include "dialogs/AboutDialog.h"
 #include "dialogs/SettingsDialog.h"
 #include "dialogs/DocInfoDialog.h"
@@ -742,10 +743,16 @@ bool MainWindow::OpenFile(const std::wstring& path) {
                     Localization::Get(StrID::APP_TITLE), MB_ICONERROR);
         return false;
     }
-    if (result.rtf) m_editor->SetRtf(result.content.empty() ? "" :
-        std::string(result.content.begin(), result.content.end()));
-    else if (!result.content.empty())
+    if (!result.cdmDoc.sections.empty()) {
+        cdm::CdmRenderer renderer;
+        std::string rtf = renderer.Render(result.cdmDoc);
+        m_editor->SetRtf(rtf);
+    } else if (result.rtf) {
+        m_editor->SetRtf(result.content.empty() ? "" :
+            std::string(result.content.begin(), result.content.end()));
+    } else if (!result.content.empty()) {
         m_editor->SetText(result.content);
+    }
 
     // Reapply theme so text/background colours stay correct regardless of
     // what the RTF or SetText may have reset them to.

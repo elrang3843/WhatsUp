@@ -1,69 +1,9 @@
 #include "DocxFormat.h"
 #include "ZipReader.h"
+#include "../cdm/document_builder.hpp"
 #include <sstream>
 #include <algorithm>
 #include <map>
-
-// ── Shared RTF helpers ────────────────────────────────────────────────────────
-
-// Encode a wide string as RTF: escape \{} and use \uN? for non-ASCII
-static std::string RtfEnc(const std::wstring& ws) {
-    std::string s;
-    s.reserve(ws.size() * 2);
-    for (wchar_t c : ws) {
-        if      (c == L'\\') s += "\\\\";
-        else if (c == L'{')  s += "\\{";
-        else if (c == L'}')  s += "\\}";
-        else if (c == L'\r') {}
-        else if (c < 128)    s += static_cast<char>(c);
-        else {
-            s += "\\u";
-            s += std::to_string(static_cast<int>(static_cast<int16_t>(c)));
-            s += "?";
-        }
-    }
-    return s;
-}
-
-static const std::string kFontTbl =
-    "{\\rtf1\\ansi\\deff2\n"
-    "{\\fonttbl\n"
-    "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
-    "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
-    "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
-    "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
-    "}\n";
-
-// Build the RTF header with a colortbl.
-// Index 1 is always \red0\green0\blue0 — MainWindow replaces it with the
-// current theme text color at load time. Document-specific colors go at 2+.
-static std::string BuildRtfHeader(const std::map<std::wstring,int>& colorMap) {
-    std::string h = kFontTbl;
-    h += "{\\colortbl;\\red0\\green0\\blue0;"; // index 1 = theme placeholder
-
-    // Emit entries in index order (not map's alphabetical order)
-    std::vector<std::pair<int,const std::wstring*>> ordered;
-    for (auto& [hex, idx] : colorMap)
-        ordered.push_back({idx, &hex});
-    std::sort(ordered.begin(), ordered.end(),
-              [](const auto& a, const auto& b){ return a.first < b.first; });
-
-    for (auto& [sortIdx, phex] : ordered) {
-        (void)sortIdx;
-        const std::wstring& hex = *phex;
-        unsigned r = 0, g = 0, b = 0;
-        if (hex.size() == 6) {
-            r = static_cast<unsigned>(std::stoul(hex.substr(0,2), nullptr, 16));
-            g = static_cast<unsigned>(std::stoul(hex.substr(2,2), nullptr, 16));
-            b = static_cast<unsigned>(std::stoul(hex.substr(4,2), nullptr, 16));
-        }
-        char entry[48];
-        snprintf(entry, sizeof(entry), "\\red%u\\green%u\\blue%u;", r, g, b);
-        h += entry;
-    }
-    h += "}\n\\f2\\fs22\\cf1\\pard\\ql\n";
-    return h;
-}
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
 
@@ -121,36 +61,97 @@ static std::string XmlEscape(const std::wstring& text) {
     return out;
 }
 
-// ── DOCX → RTF converter ──────────────────────────────────────────────────────
+// ── DOCX → CDM converter ─────────────────────────────────────────────────────
 
-std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
-    std::string body;
+static std::u32string WToU32(const std::wstring& ws) {
+    std::u32string s; s.reserve(ws.size());
+    for (wchar_t c : ws) s += static_cast<char32_t>(static_cast<uint16_t>(c));
+    return s;
+}
 
-    // --- State ---
-    bool inPPr  = false, inRPr = false;
+static cdm::Color HexToColorDocx(const std::wstring& hex) {
+    if (hex.size() != 6) return {};
+    try {
+        auto r = static_cast<uint8_t>(std::stoul(std::string(hex.begin(),   hex.begin()+2), nullptr, 16));
+        auto g = static_cast<uint8_t>(std::stoul(std::string(hex.begin()+2, hex.begin()+4), nullptr, 16));
+        auto b = static_cast<uint8_t>(std::stoul(std::string(hex.begin()+4, hex.end()),     nullptr, 16));
+        return cdm::Color::Make(r, g, b);
+    } catch (...) { return {}; }
+}
+
+cdm::Document DocxFormat::ParseDocumentXmlToCdm(const std::wstring& xml) {
+    cdm::DocumentBuilder b;
+    b.SetOriginalFormat(cdm::FileFormat::DOCX);
+    b.BeginSection();
+
+    bool inPPr = false, inRPr = false;
     bool inPara = false, inRun = false;
-    bool inTable = false, inRow = false, inCell = false;
-    bool inDel   = false;  // inside w:del (tracked deletion — skip)
+    bool inDel = false;
+    bool paraOpen = false;
 
-    // Paragraph properties
-    int paraAlign = 0;    // 0=left 1=center 2=right 3=justify
-    int paraIndLi = 0;    // left indent in twips
-    int headingLv = 0;    // 0=none, 1-6
-
-    // Run properties
+    int  paraAlign = 0, headingLv = 0;
     bool runB = false, runI = false, runU = false, runS = false;
-    int  runFsz = 0;     // half-points; 0 = inherit
-    std::wstring runColor; // 6-char hex RGB, empty = no explicit color
+    int  runFsz = 0;
+    std::wstring runColor;
 
-    // Document color table (keys = 6-char hex, values = colortbl index 2+)
-    std::map<std::wstring, int> colorMap;
+    bool inTable = false, inRow = false, inCell = false;
+    std::wstring cellBuf;
 
-    // Table
-    struct Cell { int w; std::string c; };
-    std::vector<std::vector<Cell>> tblRows;
-    std::vector<Cell>              tblRow;
-    std::string                    cellBuf;
-    int                            cellW = 0;
+    struct CellEntry { std::wstring text; };
+    std::vector<std::vector<CellEntry>> tblRows;
+    std::vector<CellEntry>              tblRow;
+
+    auto ensureParaOpen = [&]() {
+        if (!paraOpen && !inCell) {
+            b.BeginParagraph();
+            if (headingLv > 0) {
+                // heading styling via Bold+fontSize via TextStyle — applied at text node level
+            }
+            if (paraAlign == 1) b.SetCurrentParagraphAlignment(cdm::Alignment::Center);
+            else if (paraAlign == 2) b.SetCurrentParagraphAlignment(cdm::Alignment::Right);
+            else if (paraAlign == 3) b.SetCurrentParagraphAlignment(cdm::Alignment::Justify);
+            paraOpen = true;
+        }
+    };
+
+    auto addRunText = [&](const std::wstring& text) {
+        if (inCell) { cellBuf += text; return; }
+        ensureParaOpen();
+        cdm::TextStyle st;
+        if (runB) st.bold = true;
+        if (runI) st.italic = true;
+        if (runU) st.underline = cdm::UnderlineStyle::Single;
+        if (runS) st.strike = true;
+        if (runFsz > 0) st.fontSize = cdm::Length::Pt(runFsz / 2.0);
+        if (headingLv > 0) {
+            static const double hSz[] = {0, 18, 14, 12, 11, 10, 9};
+            st.fontSize = cdm::Length::Pt(hSz[std::min(6, headingLv)]);
+            st.bold = true;
+        }
+        if (!runColor.empty()) st.color = HexToColorDocx(runColor);
+        auto u32 = WToU32(text);
+        bool hasStyle = runB || runI || runU || runS || runFsz > 0 ||
+                        !runColor.empty() || headingLv > 0;
+        if (hasStyle) b.AddStyledText(u32, st);
+        else          b.AddText(u32);
+    };
+
+    auto closePara = [&]() {
+        if (paraOpen) { b.EndParagraph(); paraOpen = false; }
+    };
+
+    auto flushTable = [&]() {
+        if (tblRows.empty()) return;
+        b.BeginTable();
+        for (auto& row : tblRows) {
+            b.BeginTableRow();
+            for (auto& cell : row)
+                b.AddTableCell(WToU32(cell.text));
+            b.EndTableRow();
+        }
+        b.EndTable();
+        tblRows.clear();
+    };
 
     size_t pos = 0;
     while (pos < xml.size()) {
@@ -161,7 +162,6 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
 
         const std::wstring raw = xml.substr(lt + 1, gt - lt - 1);
         pos = gt + 1;
-
         if (raw.empty() || raw[0] == L'?' || raw[0] == L'!') continue;
 
         const bool isE  = (raw[0] == L'/');
@@ -172,171 +172,89 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
           while (i < raw.size() && raw[i] != L' ' && raw[i] != L'/' &&
                  raw[i] != L'\t' && raw[i] != L'\n') nm += raw[i++]; }
 
-        // --- Track deletion blocks (skip their content) ---
-        if (nm == L"w:del")  { inDel = !isE;  continue; }
-        if (inDel)           continue;
+        if (nm == L"w:del") { inDel = !isE; continue; }
+        if (inDel) continue;
 
-        // --- Paragraph ---
         if (nm == L"w:p") {
             if (!isE && !isSC) {
                 inPara = true;
-                paraAlign = 0; paraIndLi = 0; headingLv = 0;
-                if (!inCell) body += "\\pard\\ql ";
+                paraAlign = 0; headingLv = 0;
             } else if (isE) {
-                if (headingLv > 0 && !inCell) body += "\\b0\\fs22 ";
-                if (inCell) cellBuf += "\\line ";
-                else        body += "\\par\n";
+                closePara();
                 inPara = false;
             }
         }
-        else if (nm == L"w:pPr") {
-            if (!isE) { inPPr = true; }
-            else {
-                inPPr = false;
-                if (!inCell) {
-                    static const char* aln[] = {"\\ql","\\qc","\\qr","\\qj"};
-                    body += "\\pard";
-                    body += aln[std::max(0, std::min(3, paraAlign))];
-                    if (paraIndLi > 0) { body += "\\li"; body += std::to_string(paraIndLi); }
-                    if (headingLv > 0) {
-                        static const int sz[] = {0,36,28,24,22,20,18};
-                        body += "\\b\\fs";
-                        body += std::to_string(sz[std::min(6, headingLv)]);
-                    }
-                    body += " ";
-                }
-            }
-        }
+        else if (nm == L"w:pPr") { inPPr = !isE; }
         else if (nm == L"w:jc" && inPPr) {
             auto v = WAttr(raw, L"w:val");
             paraAlign = (v==L"center")?1:(v==L"right")?2:(v==L"both")?3:0;
         }
         else if (nm == L"w:pStyle" && inPPr) {
             auto v = WAttr(raw, L"w:val");
-            for (int i = 1; i <= 6; i++) {
-                if (v == L"Heading"  + std::to_wstring(i) ||
-                    v == L"heading"  + std::to_wstring(i) ||
-                    v == L"Heading " + std::to_wstring(i))
-                { headingLv = i; break; }
+            for (int lv = 1; lv <= 6; lv++) {
+                if (v == L"Heading"  + std::to_wstring(lv) ||
+                    v == L"heading"  + std::to_wstring(lv) ||
+                    v == L"Heading " + std::to_wstring(lv))
+                { headingLv = lv; break; }
             }
         }
-        else if (nm == L"w:ind" && inPPr) {
-            auto v = WAttr(raw, L"w:left");
-            if (!v.empty()) paraIndLi = _wtoi(v.c_str());
-        }
-        // --- Run ---
         else if (nm == L"w:r") {
             if (!isE && !isSC) {
                 inRun = true; runB=runI=runU=runS=false; runFsz=0; runColor.clear();
             } else inRun = false;
         }
         else if (nm == L"w:rPr") { inRPr = !isE; }
-        else if ((nm==L"w:b"  ||nm==L"w:bCs") && inRPr && !isE) { runB = WAttr(raw,L"w:val")!=L"0"; }
-        else if ((nm==L"w:i"  ||nm==L"w:iCs") && inRPr && !isE) { runI = WAttr(raw,L"w:val")!=L"0"; }
-        else if (nm==L"w:u"   && inRPr && !isE) {
+        else if ((nm==L"w:b"||nm==L"w:bCs")  && inRPr && !isE) { runB = WAttr(raw,L"w:val")!=L"0"; }
+        else if ((nm==L"w:i"||nm==L"w:iCs")  && inRPr && !isE) { runI = WAttr(raw,L"w:val")!=L"0"; }
+        else if (nm==L"w:u"                   && inRPr && !isE) {
             auto v=WAttr(raw,L"w:val"); runU=v.empty()||(v!=L"none"&&v!=L"0");
         }
-        else if (nm==L"w:strike" && inRPr && !isE) { runS = WAttr(raw,L"w:val")!=L"0"; }
+        else if (nm==L"w:strike"              && inRPr && !isE) { runS = WAttr(raw,L"w:val")!=L"0"; }
         else if ((nm==L"w:sz"||nm==L"w:szCs") && inRPr && !isE && runFsz==0) {
             auto v=WAttr(raw,L"w:val"); if(!v.empty()) runFsz=_wtoi(v.c_str());
         }
         else if (nm==L"w:color" && inRPr && !isE) {
             auto v = WAttr(raw, L"w:val");
-            if (v != L"auto" && v.size() == 6) {
-                // Ensure color is in the map; assign next available index (2+)
-                if (colorMap.find(v) == colorMap.end())
-                    colorMap[v] = static_cast<int>(colorMap.size()) + 2;
-                runColor = v;
-            }
+            if (v != L"auto" && v.size() == 6) runColor = v;
         }
-        // --- Text ---
         else if (nm == L"w:t" && !isE) {
             size_t ce = xml.find(L"</w:t>", gt + 1);
             if (ce != std::wstring::npos) {
                 std::wstring text = xml.substr(gt + 1, ce - gt - 1);
                 DecodeXmlEntities(text);
-                std::string& d2 = inCell ? cellBuf : body;
-                bool hasFmt = runB||runI||runU||runS||runFsz>0||!runColor.empty();
-                if (hasFmt) {
-                    std::string fmt = "{";
-                    if (runB)    fmt += "\\b ";
-                    if (runI)    fmt += "\\i ";
-                    if (runU)    fmt += "\\ul ";
-                    if (runS)    fmt += "\\strike ";
-                    if (runFsz > 0) { fmt += "\\fs"; fmt += std::to_string(runFsz); fmt += " "; }
-                    if (!runColor.empty()) {
-                        fmt += "\\cf" + std::to_string(colorMap.at(runColor)) + " ";
-                    }
-                    d2 += fmt + RtfEnc(text) + "}";
-                } else {
-                    d2 += RtfEnc(text);
-                }
+                addRunText(text);
                 pos = ce + 6;
             }
         }
         else if (nm == L"w:br" && !isE) {
             auto v = WAttr(raw, L"w:type");
-            (inCell ? cellBuf : body) += (v==L"page") ? "\\page " : "\\line ";
+            if (inCell) cellBuf += L'\n';
+            else if (paraOpen) {
+                if (v == L"page") { closePara(); }
+                else b.AddLineBreak();
+            }
         }
         else if (nm == L"w:tab" && !isE) {
-            (inCell ? cellBuf : body) += "\\tab ";
+            if (inCell) cellBuf += L'\t';
+            else { ensureParaOpen(); b.AddTab(); }
         }
-        // --- Table ---
         else if (nm == L"w:tbl") {
-            if (!isE && !isSC) { inTable=true; tblRows.clear(); }
-            else if (isE) {
-                if (!tblRows.empty()) {
-                    int maxC = 0;
-                    for (auto& r : tblRows) maxC = std::max(maxC, (int)r.size());
-                    int defW = maxC ? 9360/maxC : 9360;
-
-                    for (auto& row : tblRows) {
-                        body += "\\trowd\\trqc\n";
-                        int x = 0;
-                        for (auto& cl : row) {
-                            x += (cl.w > 0 ? cl.w : defW);
-                            body += "\\clbrdrt\\brdrw15\\brdrs"
-                                    "\\clbrdrl\\brdrw15\\brdrs"
-                                    "\\clbrdrb\\brdrw15\\brdrs"
-                                    "\\clbrdrr\\brdrw15\\brdrs";
-                            body += "\\cellx"; body += std::to_string(x); body += "\n";
-                        }
-                        for (auto& cl : row) {
-                            // trim trailing \line from cell content
-                            std::string c = cl.c;
-                            while (c.size() >= 6 &&
-                                   c.substr(c.size()-6) == "\\line ")
-                                c.resize(c.size()-6);
-                            body += "\\pard\\intbl "; body += c; body += "\\cell\n";
-                        }
-                        body += "\\row\n";
-                    }
-                    body += "\\pard\\ql\n";
-                }
-                inTable = false;
-            }
+            if (!isE && !isSC) { closePara(); inTable=true; tblRows.clear(); }
+            else if (isE) { flushTable(); inTable=false; }
         }
         else if (nm == L"w:tr") {
             if (!isE && !isSC) { inRow=true; tblRow.clear(); }
-            else if (isE)      { tblRows.push_back(tblRow); inRow=false; }
+            else if (isE) { tblRows.push_back(tblRow); inRow=false; }
         }
         else if (nm == L"w:tc") {
-            if (!isE && !isSC) { inCell=true; cellBuf.clear(); cellW=0; }
-            else if (isE)      { tblRow.push_back({cellW, cellBuf}); inCell=false; }
-        }
-        else if (nm == L"w:tcW" && inCell && !isE) {
-            auto w = WAttr(raw, L"w:w");
-            auto t = WAttr(raw, L"w:type");
-            if (!w.empty() && t != L"pct" && t != L"nil") {
-                if (t == L"pct")
-                    cellW = (_wtoi(w.c_str()) * 9360) / 5000;
-                else
-                    cellW = _wtoi(w.c_str());
-            }
+            if (!isE && !isSC) { inCell=true; cellBuf.clear(); }
+            else if (isE) { tblRow.push_back({cellBuf}); inCell=false; }
         }
     }
 
-    return BuildRtfHeader(colorMap) + body + "}";
+    closePara();
+    b.EndSection();
+    return b.MoveBuild();
 }
 
 // ── Build helpers (Save) ──────────────────────────────────────────────────────
@@ -454,11 +372,8 @@ FormatResult DocxFormat::Load(const std::wstring& path, Document& doc) {
         return r;
     }
     std::wstring docXml = zip.ExtractWide("word/document.xml");
-    std::string  rtf    = ParseDocumentXmlToRtf(docXml);
-
-    r.content = std::wstring(rtf.begin(), rtf.end());
-    r.rtf     = true;
-    r.ok      = true;
+    r.cdmDoc = ParseDocumentXmlToCdm(docXml);
+    r.ok     = true;
     return r;
 }
 
