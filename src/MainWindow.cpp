@@ -4,6 +4,7 @@
 #include "i18n/Localization.h"
 #include "formats/FormatManager.h"
 #include "cdm/CdmRenderer.hpp"
+#include "cdm/CdmNormalizer.hpp"
 #include "dialogs/AboutDialog.h"
 #include "dialogs/SettingsDialog.h"
 #include "dialogs/DocInfoDialog.h"
@@ -745,6 +746,7 @@ bool MainWindow::OpenFile(const std::wstring& path) {
     }
     bool usedRtf = false;
     if (!result.cdmDoc.sections.empty()) {
+        cdm::Normalize(result.cdmDoc);
         cdm::CdmRenderer renderer;
         std::string rtf = renderer.Render(result.cdmDoc);
         m_editor->SetRtf(rtf);
