@@ -1,6 +1,7 @@
 #pragma once
 #include <windows.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <string>
 #include <memory>
 #include "Editor.h"

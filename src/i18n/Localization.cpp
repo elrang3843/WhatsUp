@@ -307,9 +307,9 @@ const wchar_t* const Localization::s_en[] = {
     L"Replace (Ctrl+H)",
 };
 
-static_assert(static_cast<int>(SID::_COUNT) == ARRAYSIZE(Localization::s_ko),
+static_assert(static_cast<int>(StrID::_COUNT) == ARRAYSIZE(Localization::s_ko),
               "Korean string table size mismatch");
-static_assert(static_cast<int>(SID::_COUNT) == ARRAYSIZE(Localization::s_en),
+static_assert(static_cast<int>(StrID::_COUNT) == ARRAYSIZE(Localization::s_en),
               "English string table size mismatch");
 
 void Localization::SetLanguage(Language lang) {
@@ -320,30 +320,30 @@ Language Localization::GetLanguage() {
     return s_lang;
 }
 
-const wchar_t* Localization::Get(SID id) {
+const wchar_t* Localization::Get(StrID id) {
     int idx = static_cast<int>(id);
-    if (idx < 0 || idx >= static_cast<int>(SID::_COUNT)) return L"";
+    if (idx < 0 || idx >= static_cast<int>(StrID::_COUNT)) return L"";
     return (s_lang == Language::Korean) ? s_ko[idx] : s_en[idx];
 }
 
 std::wstring Localization::GetFileFilter() {
     // File filter is pairs of description\0pattern\0, terminated by extra \0
     std::wstring filter;
-    auto add = [&](SID descId, const wchar_t* pattern) {
+    auto add = [&](StrID descId, const wchar_t* pattern) {
         filter += Get(descId);
         filter += L'\0';
         filter += pattern;
         filter += L'\0';
     };
-    add(SID::FILTER_ALL_DOCS,  L"*.hwp;*.hwpx;*.doc;*.docx;*.md;*.html;*.htm;*.txt");
-    add(SID::FILTER_HWPX,      L"*.hwpx");
-    add(SID::FILTER_HWP,       L"*.hwp");
-    add(SID::FILTER_DOCX,      L"*.docx");
-    add(SID::FILTER_DOC,       L"*.doc");
-    add(SID::FILTER_MD,        L"*.md");
-    add(SID::FILTER_HTML,      L"*.html;*.htm");
-    add(SID::FILTER_TXT,       L"*.txt");
-    add(SID::FILTER_ALL_FILES, L"*.*");
+    add(StrID::FILTER_ALL_DOCS,  L"*.hwp;*.hwpx;*.doc;*.docx;*.md;*.html;*.htm;*.txt");
+    add(StrID::FILTER_HWPX,      L"*.hwpx");
+    add(StrID::FILTER_HWP,       L"*.hwp");
+    add(StrID::FILTER_DOCX,      L"*.docx");
+    add(StrID::FILTER_DOC,       L"*.doc");
+    add(StrID::FILTER_MD,        L"*.md");
+    add(StrID::FILTER_HTML,      L"*.html;*.htm");
+    add(StrID::FILTER_TXT,       L"*.txt");
+    add(StrID::FILTER_ALL_FILES, L"*.*");
     filter += L'\0'; // double-null terminator
     return filter;
 }

@@ -5,6 +5,10 @@
 #include <vector>
 #include <functional>
 
+#ifndef CLR_NONE
+#define CLR_NONE ((COLORREF)-1)
+#endif
+
 struct CharFormat {
     std::wstring fontName;
     int          fontSize    = 0;   // half-points (0 = unchanged)

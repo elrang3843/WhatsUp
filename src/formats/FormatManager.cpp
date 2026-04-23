@@ -34,7 +34,7 @@ FormatResult FormatManager::Load(const std::wstring& path, Document& doc) {
     auto handler = HandlerFor(fmt);
     if (!handler) {
         FormatResult r;
-        r.error = Localization::Get(SID::MSG_FORMAT_UNSUPPORTED);
+        r.error = Localization::Get(StrID::MSG_FORMAT_UNSUPPORTED);
         return r;
     }
     return handler->Load(path, doc);
@@ -50,13 +50,13 @@ FormatResult FormatManager::Save(const std::wstring& path,
     auto handler = HandlerFor(fmt);
     if (!handler) {
         FormatResult r;
-        r.error = Localization::Get(SID::MSG_FORMAT_UNSUPPORTED);
+        r.error = Localization::Get(StrID::MSG_FORMAT_UNSUPPORTED);
         return r;
     }
     if (!handler->CanWrite()) {
         FormatResult r;
         r.error = Localization::Get(
-            (fmt == DocFormat::Hwp) ? SID::MSG_HWP_READONLY : SID::MSG_DOC_READONLY);
+            (fmt == DocFormat::Hwp) ? StrID::MSG_HWP_READONLY : StrID::MSG_DOC_READONLY);
         return r;
     }
     return handler->Save(path, content, rtfContent, doc);

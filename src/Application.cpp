@@ -76,7 +76,7 @@ void Application::SaveSettings() {
     WritePrivateProfileStringW(sec, L"GridSnap",     boolStr(m_settings.gridSnap),      ini.c_str());
 
     wchar_t buf[16];
-    _snwprintf_s(buf, _countof(buf), L"%d", m_settings.gridSize);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"%d", m_settings.gridSize);
     WritePrivateProfileStringW(sec, L"GridSize", buf, ini.c_str());
 }
 

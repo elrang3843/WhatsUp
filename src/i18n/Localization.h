@@ -4,7 +4,7 @@
 #include <unordered_map>
 
 // ---- String ID enumeration ----
-enum class SID {
+enum class StrID {
     // App
     APP_TITLE,
     APP_VERSION,
@@ -163,13 +163,15 @@ class Localization {
 public:
     static void        SetLanguage(Language lang);
     static Language    GetLanguage();
-    static const wchar_t* Get(SID id);
+    static const wchar_t* Get(StrID id);
 
     // File open/save filter string (double-null terminated)
     static std::wstring GetFileFilter();
 
 private:
     static Language                                         s_lang;
+
+public:
     static const wchar_t* const                             s_ko[];
     static const wchar_t* const                             s_en[];
 };

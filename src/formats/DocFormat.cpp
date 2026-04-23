@@ -104,6 +104,6 @@ FormatResult DocFormat_::Save(const std::wstring& /*path*/,
                                const std::string&  /*rtf*/,
                                Document& /*doc*/) {
     FormatResult r;
-    r.error = Localization::Get(SID::MSG_DOC_READONLY);
+    r.error = Localization::Get(StrID::MSG_DOC_READONLY);
     return r;
 }

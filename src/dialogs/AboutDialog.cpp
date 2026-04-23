@@ -12,16 +12,16 @@ INT_PTR CALLBACK AboutDialog::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     switch (msg) {
     case WM_INITDIALOG: {
         // Set version and copyright text
-        std::wstring ver = std::wstring(L"Version ") + Localization::Get(SID::APP_VERSION);
+        std::wstring ver = std::wstring(L"Version ") + Localization::Get(StrID::APP_VERSION);
         SetDlgItemTextW(hwnd, IDC_ABOUT_VERSION,   ver.c_str());
-        SetDlgItemTextW(hwnd, IDC_ABOUT_COPYRIGHT, Localization::Get(SID::APP_COPYRIGHT));
+        SetDlgItemTextW(hwnd, IDC_ABOUT_COPYRIGHT, Localization::Get(StrID::APP_COPYRIGHT));
 
         // Make URL clickable (SysLink alternative: just set as static)
         SetDlgItemTextW(hwnd, IDC_ABOUT_URL,
                         L"https://github.com/elrang3843/whatsup");
 
         // Update caption in current language
-        SetWindowTextW(hwnd, Localization::Get(SID::MENU_HELP_ABOUT));
+        SetWindowTextW(hwnd, Localization::Get(StrID::MENU_HELP_ABOUT));
         return TRUE;
     }
     case WM_COMMAND:

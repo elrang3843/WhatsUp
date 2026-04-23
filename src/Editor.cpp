@@ -3,6 +3,11 @@
 #include <algorithm>
 #include <commdlg.h>
 #include <winspool.h>
+#include <imm.h>
+
+#ifndef CFM_UNDERLINECOLOR
+#define CFM_UNDERLINECOLOR 0x00800000
+#endif
 
 Editor::Editor()  = default;
 Editor::~Editor() { Destroy(); }

@@ -20,7 +20,7 @@ void Document::Reset() {
 std::wstring Document::DisplayTitle() const {
     std::wstring name;
     if (m_path.empty()) {
-        name = Localization::Get(SID::UNTITLED);
+        name = Localization::Get(StrID::UNTITLED);
     } else {
         wchar_t fname[MAX_PATH];
         wcscpy_s(fname, m_path.c_str());

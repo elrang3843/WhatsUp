@@ -40,7 +40,7 @@ HWND MainWindow::Create(HINSTANCE hInst) {
     HWND hwnd = CreateWindowExW(
         WS_EX_ACCEPTFILES,
         kClassName,
-        Localization::Get(SID::APP_TITLE),
+        Localization::Get(StrID::APP_TITLE),
         WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT, CW_USEDEFAULT, 1100, 780,
         nullptr, nullptr, hInst, nullptr);
@@ -134,13 +134,13 @@ bool MainWindow::OnCreate(HWND hwnd, HINSTANCE hInst) {
 void MainWindow::BuildMenu() {
     HMENU hBar  = CreateMenu();
 
-    auto popup = [&](HMENU hParent, SID nameId) {
+    auto popup = [&](HMENU hParent, StrID nameId) {
         HMENU hPop = CreatePopupMenu();
         AppendMenuW(hParent, MF_POPUP, reinterpret_cast<UINT_PTR>(hPop),
                     Localization::Get(nameId));
         return hPop;
     };
-    auto item = [](HMENU hPop, UINT id, SID sid) {
+    auto item = [](HMENU hPop, UINT id, StrID sid) {
         AppendMenuW(hPop, MF_STRING, id, Localization::Get(sid));
     };
     auto sep = [](HMENU hPop) {
@@ -148,90 +148,90 @@ void MainWindow::BuildMenu() {
     };
 
     // 파일(File)
-    HMENU hFile = popup(hBar, SID::MENU_FILE);
-    item(hFile, ID_FILE_NEW,    SID::MENU_FILE_NEW);
-    item(hFile, ID_FILE_OPEN,   SID::MENU_FILE_OPEN);
+    HMENU hFile = popup(hBar, StrID::MENU_FILE);
+    item(hFile, ID_FILE_NEW,    StrID::MENU_FILE_NEW);
+    item(hFile, ID_FILE_OPEN,   StrID::MENU_FILE_OPEN);
     sep(hFile);
-    item(hFile, ID_FILE_SAVE,   SID::MENU_FILE_SAVE);
-    item(hFile, ID_FILE_SAVEAS, SID::MENU_FILE_SAVEAS);
+    item(hFile, ID_FILE_SAVE,   StrID::MENU_FILE_SAVE);
+    item(hFile, ID_FILE_SAVEAS, StrID::MENU_FILE_SAVEAS);
     sep(hFile);
-    item(hFile, ID_FILE_PRINT,  SID::MENU_FILE_PRINT);
+    item(hFile, ID_FILE_PRINT,  StrID::MENU_FILE_PRINT);
     sep(hFile);
-    item(hFile, ID_FILE_CLOSE,  SID::MENU_FILE_CLOSE);
-    item(hFile, ID_FILE_EXIT,   SID::MENU_FILE_EXIT);
+    item(hFile, ID_FILE_CLOSE,  StrID::MENU_FILE_CLOSE);
+    item(hFile, ID_FILE_EXIT,   StrID::MENU_FILE_EXIT);
 
     // 편집(Edit)
-    HMENU hEdit = popup(hBar, SID::MENU_EDIT);
-    item(hEdit, ID_EDIT_UNDO,     SID::MENU_EDIT_UNDO);
-    item(hEdit, ID_EDIT_REDO,     SID::MENU_EDIT_REDO);
+    HMENU hEdit = popup(hBar, StrID::MENU_EDIT);
+    item(hEdit, ID_EDIT_UNDO,     StrID::MENU_EDIT_UNDO);
+    item(hEdit, ID_EDIT_REDO,     StrID::MENU_EDIT_REDO);
     sep(hEdit);
-    item(hEdit, ID_EDIT_CUT,      SID::MENU_EDIT_CUT);
-    item(hEdit, ID_EDIT_COPY,     SID::MENU_EDIT_COPY);
-    item(hEdit, ID_EDIT_PASTE,    SID::MENU_EDIT_PASTE);
+    item(hEdit, ID_EDIT_CUT,      StrID::MENU_EDIT_CUT);
+    item(hEdit, ID_EDIT_COPY,     StrID::MENU_EDIT_COPY);
+    item(hEdit, ID_EDIT_PASTE,    StrID::MENU_EDIT_PASTE);
     sep(hEdit);
-    item(hEdit, ID_EDIT_SELECTALL,SID::MENU_EDIT_SELECTALL);
+    item(hEdit, ID_EDIT_SELECTALL,StrID::MENU_EDIT_SELECTALL);
     sep(hEdit);
-    item(hEdit, ID_EDIT_FIND,     SID::MENU_EDIT_FIND);
-    item(hEdit, ID_EDIT_REPLACE,  SID::MENU_EDIT_REPLACE);
+    item(hEdit, ID_EDIT_FIND,     StrID::MENU_EDIT_FIND);
+    item(hEdit, ID_EDIT_REPLACE,  StrID::MENU_EDIT_REPLACE);
     sep(hEdit);
-    item(hEdit, ID_EDIT_DOCINFO,  SID::MENU_EDIT_DOCINFO);
+    item(hEdit, ID_EDIT_DOCINFO,  StrID::MENU_EDIT_DOCINFO);
 
     // 입력(Insert)
-    HMENU hIns = popup(hBar, SID::MENU_INPUT);
-    item(hIns, ID_INSERT_TEXTBOX,  SID::MENU_INPUT_TEXTBOX);
-    item(hIns, ID_INSERT_CHARMAP,  SID::MENU_INPUT_CHARMAP);
-    item(hIns, ID_INSERT_SHAPES,   SID::MENU_INPUT_SHAPES);
-    item(hIns, ID_INSERT_PICTURE,  SID::MENU_INPUT_PICTURE);
-    item(hIns, ID_INSERT_EMOJI,    SID::MENU_INPUT_EMOJI);
+    HMENU hIns = popup(hBar, StrID::MENU_INPUT);
+    item(hIns, ID_INSERT_TEXTBOX,  StrID::MENU_INPUT_TEXTBOX);
+    item(hIns, ID_INSERT_CHARMAP,  StrID::MENU_INPUT_CHARMAP);
+    item(hIns, ID_INSERT_SHAPES,   StrID::MENU_INPUT_SHAPES);
+    item(hIns, ID_INSERT_PICTURE,  StrID::MENU_INPUT_PICTURE);
+    item(hIns, ID_INSERT_EMOJI,    StrID::MENU_INPUT_EMOJI);
     sep(hIns);
-    item(hIns, ID_INSERT_TABLE,    SID::MENU_INPUT_TABLE);
-    item(hIns, ID_INSERT_CHART,    SID::MENU_INPUT_CHART);
-    item(hIns, ID_INSERT_FORMULA,  SID::MENU_INPUT_FORMULA);
+    item(hIns, ID_INSERT_TABLE,    StrID::MENU_INPUT_TABLE);
+    item(hIns, ID_INSERT_CHART,    StrID::MENU_INPUT_CHART);
+    item(hIns, ID_INSERT_FORMULA,  StrID::MENU_INPUT_FORMULA);
     sep(hIns);
-    item(hIns, ID_INSERT_DATETIME, SID::MENU_INPUT_DATETIME);
-    item(hIns, ID_INSERT_COMMENT,  SID::MENU_INPUT_COMMENT);
-    item(hIns, ID_INSERT_CAPTION,  SID::MENU_INPUT_CAPTION);
-    item(hIns, ID_INSERT_HEADNOTE, SID::MENU_INPUT_HEADNOTE);
+    item(hIns, ID_INSERT_DATETIME, StrID::MENU_INPUT_DATETIME);
+    item(hIns, ID_INSERT_COMMENT,  StrID::MENU_INPUT_COMMENT);
+    item(hIns, ID_INSERT_CAPTION,  StrID::MENU_INPUT_CAPTION);
+    item(hIns, ID_INSERT_HEADNOTE, StrID::MENU_INPUT_HEADNOTE);
     sep(hIns);
-    item(hIns, ID_INSERT_HYPERLINK,SID::MENU_INPUT_HYPERLINK);
-    item(hIns, ID_INSERT_BOOKMARK, SID::MENU_INPUT_BOOKMARK);
+    item(hIns, ID_INSERT_HYPERLINK,StrID::MENU_INPUT_HYPERLINK);
+    item(hIns, ID_INSERT_BOOKMARK, StrID::MENU_INPUT_BOOKMARK);
 
     // 서식(Format)
-    HMENU hFmt = popup(hBar, SID::MENU_FORMAT);
-    item(hFmt, ID_FORMAT_CHAR,    SID::MENU_FORMAT_CHAR);
-    item(hFmt, ID_FORMAT_PARA,    SID::MENU_FORMAT_PARA);
-    item(hFmt, ID_FORMAT_COLUMNS, SID::MENU_FORMAT_COLUMNS);
+    HMENU hFmt = popup(hBar, StrID::MENU_FORMAT);
+    item(hFmt, ID_FORMAT_CHAR,    StrID::MENU_FORMAT_CHAR);
+    item(hFmt, ID_FORMAT_PARA,    StrID::MENU_FORMAT_PARA);
+    item(hFmt, ID_FORMAT_COLUMNS, StrID::MENU_FORMAT_COLUMNS);
     sep(hFmt);
-    item(hFmt, ID_FORMAT_OBJECT,  SID::MENU_FORMAT_OBJECT);
-    item(hFmt, ID_FORMAT_BORDER,  SID::MENU_FORMAT_BORDER);
+    item(hFmt, ID_FORMAT_OBJECT,  StrID::MENU_FORMAT_OBJECT);
+    item(hFmt, ID_FORMAT_BORDER,  StrID::MENU_FORMAT_BORDER);
     sep(hFmt);
-    item(hFmt, ID_FORMAT_STYLE,   SID::MENU_FORMAT_STYLE);
+    item(hFmt, ID_FORMAT_STYLE,   StrID::MENU_FORMAT_STYLE);
 
     // 쪽(Page)
-    HMENU hPage = popup(hBar, SID::MENU_PAGE);
-    item(hPage, ID_PAGE_SETUP,  SID::MENU_PAGE_SETUP);
+    HMENU hPage = popup(hBar, StrID::MENU_PAGE);
+    item(hPage, ID_PAGE_SETUP,  StrID::MENU_PAGE_SETUP);
     sep(hPage);
-    item(hPage, ID_PAGE_HEADER, SID::MENU_PAGE_HEADER);
-    item(hPage, ID_PAGE_FOOTER, SID::MENU_PAGE_FOOTER);
-    item(hPage, ID_PAGE_NUMBER, SID::MENU_PAGE_NUMBER);
+    item(hPage, ID_PAGE_HEADER, StrID::MENU_PAGE_HEADER);
+    item(hPage, ID_PAGE_FOOTER, StrID::MENU_PAGE_FOOTER);
+    item(hPage, ID_PAGE_NUMBER, StrID::MENU_PAGE_NUMBER);
     sep(hPage);
-    item(hPage, ID_PAGE_SPLIT,  SID::MENU_PAGE_SPLIT);
-    item(hPage, ID_PAGE_MERGE,  SID::MENU_PAGE_MERGE);
+    item(hPage, ID_PAGE_SPLIT,  StrID::MENU_PAGE_SPLIT);
+    item(hPage, ID_PAGE_MERGE,  StrID::MENU_PAGE_MERGE);
 
     // 설정(Settings)
-    HMENU hSet = popup(hBar, SID::MENU_SETTINGS);
-    item(hSet, ID_SETTINGS_GRID,    SID::MENU_SETTINGS_GRID);
+    HMENU hSet = popup(hBar, StrID::MENU_SETTINGS);
+    item(hSet, ID_SETTINGS_GRID,    StrID::MENU_SETTINGS_GRID);
     sep(hSet);
-    item(hSet, ID_SETTINGS_USER,    SID::MENU_SETTINGS_USER);
-    item(hSet, ID_SETTINGS_LANGUAGE,SID::MENU_SETTINGS_LANGUAGE);
-    item(hSet, ID_SETTINGS_THEME,   SID::MENU_SETTINGS_THEME);
+    item(hSet, ID_SETTINGS_USER,    StrID::MENU_SETTINGS_USER);
+    item(hSet, ID_SETTINGS_LANGUAGE,StrID::MENU_SETTINGS_LANGUAGE);
+    item(hSet, ID_SETTINGS_THEME,   StrID::MENU_SETTINGS_THEME);
 
     // 도움말(Help)
-    HMENU hHelp = popup(hBar, SID::MENU_HELP);
-    item(hHelp, ID_HELP_MANUAL,  SID::MENU_HELP_MANUAL);
-    item(hHelp, ID_HELP_LICENSE, SID::MENU_HELP_LICENSE);
+    HMENU hHelp = popup(hBar, StrID::MENU_HELP);
+    item(hHelp, ID_HELP_MANUAL,  StrID::MENU_HELP_MANUAL);
+    item(hHelp, ID_HELP_LICENSE, StrID::MENU_HELP_LICENSE);
     sep(hHelp);
-    item(hHelp, ID_HELP_ABOUT,   SID::MENU_HELP_ABOUT);
+    item(hHelp, ID_HELP_ABOUT,   StrID::MENU_HELP_ABOUT);
 
     SetMenu(m_hwnd, hBar);
 }
@@ -584,23 +584,23 @@ void MainWindow::OnNotify(NMHDR* nm) {
     // Toolbar tooltip text
     if (nm->code == TTN_GETDISPINFOW) {
         auto* ttdi = reinterpret_cast<NMTTDISPINFOW*>(nm);
-        struct { UINT id; SID sid; } tips[] = {
-            {ID_FILE_NEW,    SID::TT_NEW},    {ID_FILE_OPEN,   SID::TT_OPEN},
-            {ID_FILE_SAVE,   SID::TT_SAVE},   {ID_FILE_PRINT,  SID::TT_PRINT},
-            {ID_EDIT_UNDO,   SID::TT_UNDO},   {ID_EDIT_REDO,   SID::TT_REDO},
-            {ID_EDIT_CUT,    SID::TT_CUT},    {ID_EDIT_COPY,   SID::TT_COPY},
-            {ID_EDIT_PASTE,  SID::TT_PASTE},
-            {ID_FORMAT_BOLD, SID::TT_BOLD},   {ID_FORMAT_ITALIC,  SID::TT_ITALIC},
-            {ID_FORMAT_UNDERLINE,SID::TT_UNDERLINE},
-            {ID_FORMAT_STRIKEOUT,SID::TT_STRIKEOUT},
-            {ID_PARA_ALIGN_LEFT,SID::TT_ALIGN_LEFT},
-            {ID_PARA_ALIGN_CENTER,SID::TT_ALIGN_CENTER},
-            {ID_PARA_ALIGN_RIGHT,SID::TT_ALIGN_RIGHT},
-            {ID_PARA_ALIGN_JUSTIFY,SID::TT_ALIGN_JUSTIFY},
-            {ID_PARA_INDENT, SID::TT_INDENT}, {ID_PARA_OUTDENT,SID::TT_OUTDENT},
-            {ID_FORMAT_FONTCOLOR,SID::TT_FONT_COLOR},
-            {ID_FORMAT_BGCOLOR,  SID::TT_BGCOLOR},
-            {ID_EDIT_FIND,   SID::TT_FIND},   {ID_EDIT_REPLACE,SID::TT_REPLACE},
+        struct { UINT id; StrID sid; } tips[] = {
+            {ID_FILE_NEW,    StrID::TT_NEW},    {ID_FILE_OPEN,   StrID::TT_OPEN},
+            {ID_FILE_SAVE,   StrID::TT_SAVE},   {ID_FILE_PRINT,  StrID::TT_PRINT},
+            {ID_EDIT_UNDO,   StrID::TT_UNDO},   {ID_EDIT_REDO,   StrID::TT_REDO},
+            {ID_EDIT_CUT,    StrID::TT_CUT},    {ID_EDIT_COPY,   StrID::TT_COPY},
+            {ID_EDIT_PASTE,  StrID::TT_PASTE},
+            {ID_FORMAT_BOLD, StrID::TT_BOLD},   {ID_FORMAT_ITALIC,  StrID::TT_ITALIC},
+            {ID_FORMAT_UNDERLINE,StrID::TT_UNDERLINE},
+            {ID_FORMAT_STRIKEOUT,StrID::TT_STRIKEOUT},
+            {ID_PARA_ALIGN_LEFT,StrID::TT_ALIGN_LEFT},
+            {ID_PARA_ALIGN_CENTER,StrID::TT_ALIGN_CENTER},
+            {ID_PARA_ALIGN_RIGHT,StrID::TT_ALIGN_RIGHT},
+            {ID_PARA_ALIGN_JUSTIFY,StrID::TT_ALIGN_JUSTIFY},
+            {ID_PARA_INDENT, StrID::TT_INDENT}, {ID_PARA_OUTDENT,StrID::TT_OUTDENT},
+            {ID_FORMAT_FONTCOLOR,StrID::TT_FONT_COLOR},
+            {ID_FORMAT_BGCOLOR,  StrID::TT_BGCOLOR},
+            {ID_EDIT_FIND,   StrID::TT_FIND},   {ID_EDIT_REPLACE,StrID::TT_REPLACE},
         };
         for (auto& t : tips) {
             if (ttdi->hdr.idFrom == t.id) {
@@ -644,7 +644,7 @@ bool MainWindow::OpenFile(const std::wstring& path) {
     auto result = FormatManager::Instance().Load(path, *m_doc);
     if (!result.ok) {
         MessageBoxW(m_hwnd, result.error.c_str(),
-                    Localization::Get(SID::APP_TITLE), MB_ICONERROR);
+                    Localization::Get(StrID::APP_TITLE), MB_ICONERROR);
         return false;
     }
     if (result.rtf) m_editor->SetRtf(result.content.empty() ? "" :
@@ -689,7 +689,7 @@ bool MainWindow::SaveFile(const std::wstring& path) {
     auto result = FormatManager::Instance().Save(path, text, rtf, *m_doc);
     if (!result.ok) {
         MessageBoxW(m_hwnd, result.error.c_str(),
-                    Localization::Get(SID::APP_TITLE), MB_ICONERROR);
+                    Localization::Get(StrID::APP_TITLE), MB_ICONERROR);
         return false;
     }
     m_doc->SetModified(false);
@@ -713,8 +713,8 @@ void MainWindow::FileClose() {
 bool MainWindow::ConfirmClose() {
     if (!m_editor->IsModified()) return true;
     int ret = MessageBoxW(m_hwnd,
-                          Localization::Get(SID::MSG_UNSAVED_CHANGES),
-                          Localization::Get(SID::MSG_UNSAVED_TITLE),
+                          Localization::Get(StrID::MSG_UNSAVED_CHANGES),
+                          Localization::Get(StrID::MSG_UNSAVED_TITLE),
                           MB_YESNOCANCEL | MB_ICONQUESTION);
     if (ret == IDCANCEL) return false;
     if (ret == IDYES)    FileSave();
@@ -861,7 +861,7 @@ void MainWindow::FormatChar() {
         // Update combos
         SendMessageW(m_hwndFontCombo, CB_SELECTSTRING, static_cast<WPARAM>(-1),
                      reinterpret_cast<LPARAM>(lf.lfFaceName));
-        wchar_t szPt[8]; _snwprintf_s(szPt, _countof(szPt), L"%d", cf.iPointSize / 10);
+        wchar_t szPt[8]; _snwprintf_s(szPt, _countof(szPt), _TRUNCATE, L"%d", cf.iPointSize / 10);
         SendMessageW(m_hwndSizeCombo, CB_SELECTSTRING, static_cast<WPARAM>(-1),
                      reinterpret_cast<LPARAM>(szPt));
     }
@@ -968,10 +968,10 @@ void MainWindow::UpdateStatusBar() {
 
     wchar_t buf[128];
     // Part 0: page (approximate)
-    _snwprintf_s(buf, _countof(buf), L"페이지: 1 / 1");
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"페이지: 1 / 1");
     SendMessageW(m_hwndStatus, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(buf));
     // Part 1: word count
-    _snwprintf_s(buf, _countof(buf), L"단어 수: %d", stats.words);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"단어 수: %d", stats.words);
     SendMessageW(m_hwndStatus, SB_SETTEXTW, 1, reinterpret_cast<LPARAM>(buf));
     // Part 2: language
     const wchar_t* langStr =
@@ -979,14 +979,14 @@ void MainWindow::UpdateStatusBar() {
         ? L"한국어 / English" : L"English / 한국어";
     SendMessageW(m_hwndStatus, SB_SETTEXTW, 2, reinterpret_cast<LPARAM>(langStr));
     // Part 3: line / col
-    _snwprintf_s(buf, _countof(buf), L"줄: %d | 칸: %d",
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"줄: %d | 칸: %d",
                  m_editor->GetCaretLine(), m_editor->GetCaretCol());
     SendMessageW(m_hwndStatus, SB_SETTEXTW, 3, reinterpret_cast<LPARAM>(buf));
 }
 
 void MainWindow::UpdateTitleBar() {
     std::wstring title = m_doc->DisplayTitle() + L" - " +
-                         Localization::Get(SID::APP_TITLE);
+                         Localization::Get(StrID::APP_TITLE);
     SetWindowTextW(m_hwnd, title.c_str());
 }
 

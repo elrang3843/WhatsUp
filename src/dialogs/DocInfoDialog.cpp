@@ -20,11 +20,11 @@ void DocInfoDialog::Populate(HWND hwnd, const Document& doc) {
 
     const auto& st = doc.Stats();
     wchar_t buf[64];
-    _snwprintf_s(buf, _countof(buf), L"%d", st.words);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"%d", st.words);
     SetDlgItemTextW(hwnd, IDC_WORD_COUNT, buf);
-    _snwprintf_s(buf, _countof(buf), L"%d", st.chars);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"%d", st.chars);
     SetDlgItemTextW(hwnd, IDC_CHAR_COUNT, buf);
-    _snwprintf_s(buf, _countof(buf), L"%d", st.pages);
+    _snwprintf_s(buf, _countof(buf), _TRUNCATE, L"%d", st.pages);
     SetDlgItemTextW(hwnd, IDC_PAGE_COUNT, buf);
 
     // Watermark

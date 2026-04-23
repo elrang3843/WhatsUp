@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <sstream>
 #include <richedit.h>
+#include <commctrl.h>
 
 static constexpr int AC_LIST_MAX_VISIBLE = 8;
 static constexpr int AC_LIST_ITEM_HEIGHT = 18;

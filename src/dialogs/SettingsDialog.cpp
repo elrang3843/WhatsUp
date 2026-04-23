@@ -22,7 +22,7 @@ void SettingsDialog::Populate(HWND hwnd, const AppSettings& s) {
     HWND hTheme = GetDlgItem(hwnd, IDC_THEME_COMBO);
     SendMessageW(hTheme, CB_RESETCONTENT, 0, 0);
     SendMessageW(hTheme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(
-        Localization::Get(SID::TAB_GENERAL))); // reuse for "Light"
+        Localization::Get(StrID::TAB_GENERAL))); // reuse for "Light"
     SendMessageW(hTheme, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
     SendMessageW(hTheme, CB_SETCURSEL, s.theme == Theme::Dark ? 1 : 0, 0);
 

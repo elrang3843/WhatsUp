@@ -1,14 +1,25 @@
 #include "SpellChecker.h"
-#include <spellcheck.h>
-#include <wrl/client.h>
 
+// ISpellCheckerFactory is available in the Windows 8+ SDK (winnt >= 0x0602).
+// We load it at runtime so the binary still runs on Windows 7.
+#if defined(_WIN32_WINNT) && _WIN32_WINNT >= 0x0602
+#  include <spellcheck.h>
+#  define HAVE_SPELLCHECK_H 1
+#else
+#  define HAVE_SPELLCHECK_H 0
+#endif
+
+#if HAVE_SPELLCHECK_H
+#include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
+#endif
 
 SpellChecker::SpellChecker() {
     Init();
 }
 
 SpellChecker::~SpellChecker() {
+#if HAVE_SPELLCHECK_H
     if (m_pChecker) {
         reinterpret_cast<ISpellChecker*>(m_pChecker)->Release();
         m_pChecker = nullptr;
@@ -17,10 +28,11 @@ SpellChecker::~SpellChecker() {
         reinterpret_cast<ISpellCheckerFactory*>(m_pFactory)->Release();
         m_pFactory = nullptr;
     }
+#endif
 }
 
 void SpellChecker::Init() {
-    // ISpellCheckerFactory is available on Windows 8+
+#if HAVE_SPELLCHECK_H
     ISpellCheckerFactory* pFactory = nullptr;
     HRESULT hr = CoCreateInstance(__uuidof(SpellCheckerFactory), nullptr,
                                   CLSCTX_INPROC_SERVER,
@@ -33,14 +45,17 @@ void SpellChecker::Init() {
     m_pFactory  = pFactory;
     m_available = true;
 
-    // Default to system UI language
     LANGID lid = GetUserDefaultUILanguage();
     wchar_t langTag[LOCALE_NAME_MAX_LENGTH];
     LCIDToLocaleName(lid, langTag, LOCALE_NAME_MAX_LENGTH, 0);
     SetLanguage(langTag);
+#else
+    m_available = false;
+#endif
 }
 
 bool SpellChecker::SetLanguage(const std::wstring& langTag) {
+#if HAVE_SPELLCHECK_H
     if (!m_available) return false;
     auto* pFactory = reinterpret_cast<ISpellCheckerFactory*>(m_pFactory);
 
@@ -59,9 +74,14 @@ bool SpellChecker::SetLanguage(const std::wstring& langTag) {
 
     m_pChecker = pChecker;
     return true;
+#else
+    (void)langTag;
+    return false;
+#endif
 }
 
 bool SpellChecker::Check(const std::wstring& word) {
+#if HAVE_SPELLCHECK_H
     if (!m_available || !m_pChecker || word.empty()) return true;
     auto* pChecker = reinterpret_cast<ISpellChecker*>(m_pChecker);
 
@@ -73,10 +93,15 @@ bool SpellChecker::Check(const std::wstring& word) {
     if (pError) pError->Release();
     pErrors->Release();
     return !hasError;
+#else
+    (void)word;
+    return true;
+#endif
 }
 
 std::vector<SpellSuggestion> SpellChecker::Suggest(const std::wstring& word) {
     std::vector<SpellSuggestion> results;
+#if HAVE_SPELLCHECK_H
     if (!m_available || !m_pChecker || word.empty()) return results;
     auto* pChecker = reinterpret_cast<ISpellChecker*>(m_pChecker);
 
@@ -90,12 +115,16 @@ std::vector<SpellSuggestion> SpellChecker::Suggest(const std::wstring& word) {
         CoTaskMemFree(suggestion);
     }
     pSuggestions->Release();
+#else
+    (void)word;
+#endif
     return results;
 }
 
 std::vector<SpellChecker::Mistake> SpellChecker::Check(const std::wstring& text,
                                                         int startOffset) {
     std::vector<Mistake> mistakes;
+#if HAVE_SPELLCHECK_H
     if (!m_available || !m_pChecker || text.empty()) return mistakes;
     auto* pChecker = reinterpret_cast<ISpellChecker*>(m_pChecker);
 
@@ -117,15 +146,26 @@ std::vector<SpellChecker::Mistake> SpellChecker::Check(const std::wstring& text,
         pError = nullptr;
     }
     pErrors->Release();
+#else
+    (void)text; (void)startOffset;
+#endif
     return mistakes;
 }
 
 void SpellChecker::AddWord(const std::wstring& word) {
+#if HAVE_SPELLCHECK_H
     if (!m_available || !m_pChecker || word.empty()) return;
     reinterpret_cast<ISpellChecker*>(m_pChecker)->Add(word.c_str());
+#else
+    (void)word;
+#endif
 }
 
 void SpellChecker::IgnoreWord(const std::wstring& word) {
+#if HAVE_SPELLCHECK_H
     if (!m_available || !m_pChecker || word.empty()) return;
     reinterpret_cast<ISpellChecker*>(m_pChecker)->Ignore(word.c_str());
+#else
+    (void)word;
+#endif
 }
