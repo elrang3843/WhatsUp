@@ -12,27 +12,60 @@
 Editor::Editor()  = default;
 Editor::~Editor() { Destroy(); }
 
+// Write a one-line entry to %TEMP%\whatsup_richedit.log for diagnosis.
+static void RichEditLog(const wchar_t* msg) {
+    wchar_t path[MAX_PATH];
+    GetTempPathW(MAX_PATH, path);
+    wcscat_s(path, L"whatsup_richedit.log");
+    FILE* f = nullptr;
+    _wfopen_s(&f, path, L"a");
+    if (f) { fwprintf(f, L"%s\n", msg); fclose(f); }
+    OutputDebugStringW(msg);
+    OutputDebugStringW(L"\n");
+}
+
 bool Editor::Create(HWND hwndParent, UINT controlId) {
-    // Try RichEdit 5.0 (Msftedit.dll) then 2.0 (Riched20.dll), using each
-    // DLL's own registered class name.  The two DLLs register different class
-    // names: Msftedit -> RICHEDIT50W, Riched20 -> RichEdit20W.
+    RichEditLog(L"[WhatsUp] Editor::Create() called");
+
+    // Candidate DLL + class name pairs.  On Windows 10+ riched20.dll is a
+    // thin stub that loads msftedit.dll, so both entries ultimately use the
+    // same underlying DLL.  We try Msftedit (newer) first, then Riched20.
     struct { LPCWSTR dll; LPCWSTR cls; } kEdits[] = {
         { L"Msftedit.dll", MSFTEDIT_CLASS },   // RICHEDIT50W
         { L"Riched20.dll", RICHEDIT_CLASS  },   // RichEdit20W
     };
 
     for (auto& e : kEdits) {
-        HMODULE h = LoadLibraryW(e.dll);
-        if (!h) continue;
+        wchar_t dbg[128];
+        swprintf_s(dbg, L"[WhatsUp] Trying %s / %s", e.dll, e.cls);
+        RichEditLog(dbg);
 
-        HWND hw = CreateWindowExW(
-            WS_EX_CLIENTEDGE, e.cls, nullptr,
-            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL
-            | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL
-            | ES_NOHIDESEL | ES_WANTRETURN,
-            0, 0, 0, 0,
-            hwndParent, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(controlId)),
-            GetModuleHandleW(nullptr), nullptr);
+        HMODULE h = LoadLibraryW(e.dll);
+        if (!h) {
+            swprintf_s(dbg, L"[WhatsUp]   LoadLibrary FAILED err=%lu", GetLastError());
+            RichEditLog(dbg);
+            continue;
+        }
+        RichEditLog(L"[WhatsUp]   LoadLibrary OK");
+
+        // msftedit.dll spawns a D2D/DirectWrite init thread.  Retry up to
+        // 5 times (250 ms total) to give that thread time to complete.
+        HWND hw = nullptr;
+        for (int retry = 0; retry < 5 && !hw; ++retry) {
+            if (retry > 0) Sleep(50);
+            hw = CreateWindowExW(
+                WS_EX_CLIENTEDGE, e.cls, nullptr,
+                WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL
+                | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL
+                | ES_NOHIDESEL | ES_WANTRETURN,
+                0, 0, 0, 0,
+                hwndParent,
+                reinterpret_cast<HMENU>(static_cast<UINT_PTR>(controlId)),
+                GetModuleHandleW(nullptr), nullptr);
+            swprintf_s(dbg, L"[WhatsUp]   CreateWindowExW try %d: %s (err=%lu)",
+                       retry+1, hw ? L"OK" : L"FAIL", GetLastError());
+            RichEditLog(dbg);
+        }
 
         if (hw) {
             m_hRichEd = h;
@@ -43,15 +76,18 @@ bool Editor::Create(HWND hwndParent, UINT controlId) {
     }
 
     if (!m_hwnd) {
-        wchar_t buf[320];
+        RichEditLog(L"[WhatsUp] All RichEdit attempts failed");
+        wchar_t buf[512];
         swprintf_s(buf, _countof(buf),
             L"RichEdit 컨트롤을 생성할 수 없습니다.\n"
-            L"Msftedit.dll 및 Riched20.dll 로드/클래스 등록 실패.\n"
-            L"마지막 오류 코드: %lu (0x%08lX)",
+            L"Msftedit.dll 및 Riched20.dll 모두 실패.\n\n"
+            L"로그 파일: %%TEMP%%\\whatsup_richedit.log\n"
+            L"마지막 오류: %lu (0x%08lX)",
             GetLastError(), GetLastError());
         MessageBoxW(hwndParent, buf, L"WhatsUp 초기화 오류", MB_OK | MB_ICONERROR);
         return false;
     }
+    RichEditLog(L"[WhatsUp] RichEdit window created OK");
 
     // Enable Unicode text
     SendMessageW(m_hwnd, EM_SETTEXTMODE, TM_PLAINTEXT | TM_MULTILEVELUNDO, 0);
