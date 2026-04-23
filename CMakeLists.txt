@@ -23,8 +23,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(zlib)
 
-file(GLOB_RECURSE APP_SOURCES "src/*.cpp")
-file(GLOB_RECURSE APP_HEADERS "src/*.h")
+file(GLOB_RECURSE APP_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
+file(GLOB_RECURSE APP_HEADERS CONFIGURE_DEPENDS "src/*.h")
 
 add_executable(WhatsUp WIN32
     ${APP_SOURCES}
