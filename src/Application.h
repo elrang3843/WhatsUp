@@ -28,6 +28,7 @@ public:
 
     HINSTANCE   GetHInstance() const { return m_hInst; }
     HWND        GetMainWindow() const { return m_hMainWnd; }
+    int         GetNCmdShow()  const { return m_nCmdShow; }
 
     AppSettings& Settings() { return m_settings; }
     const AppSettings& Settings() const { return m_settings; }
@@ -45,8 +46,9 @@ private:
     Application(const Application&) = delete;
     Application& operator=(const Application&) = delete;
 
-    HINSTANCE   m_hInst   = nullptr;
+    HINSTANCE   m_hInst    = nullptr;
     HWND        m_hMainWnd = nullptr;
+    int         m_nCmdShow = SW_SHOWNORMAL;
     AppSettings m_settings;
 
     std::wstring SettingsPath() const;

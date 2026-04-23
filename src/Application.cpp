@@ -11,7 +11,8 @@ Application& Application::Instance() {
 }
 
 bool Application::Init(HINSTANCE hInst, int nCmdShow) {
-    m_hInst = hInst;
+    m_hInst    = hInst;
+    m_nCmdShow = nCmdShow;
 
     // Initialize Common Controls (visual styles, etc.)
     INITCOMMONCONTROLSEX icc{};
@@ -24,13 +25,11 @@ bool Application::Init(HINSTANCE hInst, int nCmdShow) {
     LoadSettings();
     Localization::SetLanguage(m_settings.language);
 
-    // Create the main window
+    // Create the main window hidden. WM_APP+1 calls ShowWindow after the
+    // editor and toolbar layout are fully ready, so the first visible paint
+    // is already correct — the toolbar never needs a mouse hover to appear.
     m_hMainWnd = MainWindow::Create(hInst);
-    if (!m_hMainWnd) return false;
-
-    ShowWindow(m_hMainWnd, nCmdShow);
-    UpdateWindow(m_hMainWnd);
-    return true;
+    return m_hMainWnd != nullptr;
 }
 
 int Application::Run() {

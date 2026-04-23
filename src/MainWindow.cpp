@@ -91,6 +91,12 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
                 self->ApplyTheme();
                 self->UpdateStatusBar();
                 self->UpdateToolbarState();
+                // Show the window now that everything is laid out. Doing it
+                // here (not in Application::Init) means the very first paint
+                // sees the correct rebar height and a live editor, so the
+                // toolbar is immediately visible without a mouse-hover nudge.
+                ShowWindow(hwnd, Application::Instance().GetNCmdShow());
+                UpdateWindow(hwnd);
                 SetFocus(self->m_editor->GetHwnd());
             }
         }
@@ -692,6 +698,7 @@ void MainWindow::OnNotify(NMHDR* nm) {
 void MainWindow::FileNew() {
     if (!ConfirmClose()) return;
     m_editor->Clear();
+    ApplyTheme(); // restore theme colours after Clear's WM_SETTEXT
     m_doc->Reset();
     m_ac->ClearDictionary();
     UpdateTitleBar();
@@ -709,7 +716,17 @@ void MainWindow::FileOpen() {
     ofn.lpstrFile   = path;
     ofn.nMaxFile    = MAX_PATH;
     ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY;
-    if (GetOpenFileNameW(&ofn)) OpenFile(path);
+    if (!GetOpenFileNameW(&ofn)) {
+        // Non-zero extended error means dialog failed, not user-cancelled
+        DWORD err = CommDlgExtendedError();
+        if (err != 0) {
+            wchar_t msg[64];
+            swprintf_s(msg, L"파일 열기 대화상자 오류: 0x%04lX", err);
+            MessageBoxW(m_hwnd, msg, L"오류", MB_ICONERROR);
+        }
+        return;
+    }
+    OpenFile(path);
 }
 
 bool MainWindow::OpenFile(const std::wstring& path) {
@@ -722,6 +739,11 @@ bool MainWindow::OpenFile(const std::wstring& path) {
     if (result.rtf) m_editor->SetRtf(result.content.empty() ? "" :
         std::string(result.content.begin(), result.content.end()));
     else            m_editor->SetText(result.content);
+
+    // WM_SETTEXT can reset character formatting to Windows defaults.
+    // Reapply the current theme so text colour stays correct (especially
+    // important in dark mode where default black text is invisible).
+    ApplyTheme();
 
     m_doc->SetPath(path);
     m_doc->SetModified(false);
