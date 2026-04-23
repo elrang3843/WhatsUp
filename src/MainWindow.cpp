@@ -69,6 +69,26 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             return -1;
         return 0;
     }
+    case WM_APP + 1:
+        // Deferred editor init: RichEdit DLL's D2D thread must complete
+        // before CreateWindowExW succeeds; posting this message lets
+        // WM_CREATE finish first so the DLL is fully ready.
+        if (self) {
+            if (!self->m_editor->Create(hwnd, IDC_EDITOR)) {
+                MessageBoxW(hwnd,
+                    L"리치 에디트 컨트롤(RichEdit)을 초기화하지 못했습니다.\n"
+                    L"msftedit.dll 또는 riched20.dll 로드 실패.\n\n"
+                    L"시스템 파일이 손상되었거나 DirectX/D2D가 비활성화된 환경일 수 있습니다.",
+                    L"WhatsUp 초기화 오류", MB_OK | MB_ICONERROR);
+                DestroyWindow(hwnd);
+            } else {
+                self->m_ac->Create(hwnd, self->m_editor->GetHwnd());
+                RECT rc{};
+                GetClientRect(hwnd, &rc);
+                self->OnSize(rc.right, rc.bottom);
+            }
+        }
+        return 0;
     case WM_SIZE:
         if (self) self->OnSize(LOWORD(lParam), HIWORD(lParam));
         return 0;
@@ -112,19 +132,14 @@ bool MainWindow::OnCreate(HWND hwnd, HINSTANCE hInst) {
     m_spell = std::make_unique<SpellChecker>();
     m_ac    = std::make_unique<AutoComplete>();
 
-    if (!m_editor->Create(hwnd, IDC_EDITOR)) {
-        MessageBoxW(hwnd, L"편집기 초기화에 실패했습니다.\n(Editor::Create 실패)",
-                    L"WhatsUp 오류", MB_OK | MB_ICONERROR);
-        return false;
-    }
-
+    // Editor::Create() is deferred to WM_APP+1 (posted below) so that
+    // msftedit.dll's internal D2D initialisation thread has time to
+    // complete before we call CreateWindowExW for the RichEdit control.
     BuildMenu();
     CreateToolbars();
     CreateStatusBar();
     PopulateFontCombo();
     PopulateSizeCombo();
-
-    m_ac->Create(hwnd, m_editor->GetHwnd());
 
     auto& s = Application::Instance().Settings();
     m_spell->SetLanguage(s.spellLanguage);
@@ -133,6 +148,8 @@ bool MainWindow::OnCreate(HWND hwnd, HINSTANCE hInst) {
     UpdateTitleBar();
     UpdateStatusBar();
     m_fullyCreated = true;
+
+    PostMessageW(hwnd, WM_APP + 1, 0, 0);
     return true;
 }
 
