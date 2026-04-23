@@ -103,10 +103,7 @@ void SplashScreen::OnPaint(HWND hwnd, HDC hdc) {
     // cy is shifted higher so text rows + progress bar fit without overlap
     int cx = w / 2, cy = h / 2 - 80;   // 200 when h=560
 
-    // Glow
-    DrawGlowCircle(memDC, cx, cy, 90);
-
-    // Document + pencil logo
+    // Document + pencil logo (gear drawn inside DrawLogoIcon)
     DrawLogoIcon(memDC, cx, cy, 200);
 
     // "What's Up" title  [cy+120 .. cy+180]
@@ -202,32 +199,55 @@ void SplashScreen::DrawGradientBackground(HDC hdc, const RECT& rc) {
     }
 }
 
-void SplashScreen::DrawGlowCircle(HDC hdc, int cx, int cy, int r) {
-    // Draw concentric semi-transparent rings to fake a glow
-    for (int i = r; i > r - 40; --i) {
-        int alpha = 255 - static_cast<int>((r - i) * 6.5f);
-        if (alpha < 0) alpha = 0;
-        HPEN hPen = CreatePen(PS_SOLID, 1, RGB(40, 100, 200));
-        HBRUSH hBr = reinterpret_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
-        HPEN  oldP = reinterpret_cast<HPEN>(SelectObject(hdc, hPen));
-        HBRUSH oldB = reinterpret_cast<HBRUSH>(SelectObject(hdc, hBr));
-        Ellipse(hdc, cx - i, cy - i, cx + i, cy + i);
-        SelectObject(hdc, oldP);
-        SelectObject(hdc, oldB);
-        DeleteObject(hPen);
+// Gear polygon: teeth alternate between outerR (tip) and innerR (root).
+void SplashScreen::DrawGear(HDC hdc, int cx, int cy, int outerR, int innerR, int teeth) {
+    const int pts = teeth * 4;
+    std::vector<POINT> poly(pts);
+    for (int i = 0; i < pts; ++i) {
+        double angle = 2.0 * M_PI * i / pts;
+        bool   tip   = (i % 4 == 1 || i % 4 == 2);
+        int    r     = tip ? outerR : innerR;
+        double a     = angle + (i % 4 >= 2 ? M_PI / pts : 0.0);
+        poly[i].x = cx + static_cast<int>(r * cos(a));
+        poly[i].y = cy + static_cast<int>(r * sin(a));
     }
+    Polygon(hdc, poly.data(), pts);
 }
 
-// Document + pencil icon matching the SVG design.
-// SVG reference: icon center (256,190) in 512×512; we scale to 'size' pixels.
+// Icon: large background gear → dark hub circle → document + pencil.
+// Matches SVG structure: gear image at opacity 0.55, then document+pencil on top.
 void SplashScreen::DrawLogoIcon(HDC hdc, int cx, int cy, int size) {
     float s = size / 200.0f;
 
-    // ── Document (rounded-rect outline, dark fill, 3 lines) ──────────────────
+    // ── Background gear (SVG: base64 image at opacity 0.55) ─────────────────
+    // outerR ≈ 80 % of size; innerR ≈ 82 % of outer (shallow teeth)
+    int gOuter = (int)(160.0f * s + 0.5f);
+    int gInner = (int)(gOuter * 0.82f + 0.5f);
+
+    // Color chosen to read "55 % opacity blue-gray over dark navy background"
+    HBRUSH gearBr = CreateSolidBrush(RGB(22, 52, 105));
+    HPEN   gearPn = CreatePen(PS_SOLID, std::max(1, (int)(2.0f*s+0.5f)), RGB(38, 78, 148));
+    SelectObject(hdc, gearBr);
+    SelectObject(hdc, gearPn);
+    DrawGear(hdc, cx, cy, gOuter, gInner, 16);
+    DeleteObject(gearBr);
+    DeleteObject(gearPn);
+
+    // Hub circle (slightly darker centre of the gear)
+    int hubR = (int)(gOuter * 0.65f + 0.5f);
+    HBRUSH hubBr = CreateSolidBrush(RGB(10, 26, 65));
+    HPEN   hubPn = CreatePen(PS_SOLID, 1, RGB(22, 50, 100));
+    SelectObject(hdc, hubBr);
+    SelectObject(hdc, hubPn);
+    Ellipse(hdc, cx - hubR, cy - hubR, cx + hubR, cy + hubR);
+    DeleteObject(hubBr);
+    DeleteObject(hubPn);
+
+    // ── Document (rounded-rect outline, dark fill, 3 lines) ─────────────────
     // SVG coords relative to icon centre: x∈[-58,58], y∈[-65,33], rx=11
     int dl = cx - (int)(58*s + 0.5f), dr = cx + (int)(58*s + 0.5f);
     int dt = cy - (int)(65*s + 0.5f), db = cy + (int)(33*s + 0.5f);
-    int drx = (int)(22*s + 0.5f);  // RoundRect takes diameter
+    int drx = (int)(22*s + 0.5f);
 
     HBRUSH docBg  = CreateSolidBrush(RGB(8, 20, 50));
     HPEN   docPen = CreatePen(PS_SOLID, std::max(1, (int)(5*s + 0.5f)), RGB(106, 174, 255));
@@ -237,12 +257,12 @@ void SplashScreen::DrawLogoIcon(HDC hdc, int cx, int cy, int size) {
     DeleteObject(docBg);
     DeleteObject(docPen);
 
-    // Three horizontal lines (SVG: opacity 0.75, stroke-width 4.5)
-    int lw  = std::max(1, (int)(4.5f*s + 0.5f));
+    // Three horizontal lines
+    int lw = std::max(1, (int)(4.5f*s + 0.5f));
     HPEN lp = CreatePen(PS_SOLID, lw, RGB(106, 174, 255));
     SelectObject(hdc, lp);
     int lx1 = cx - (int)(38*s + 0.5f), lx2 = cx + (int)(38*s + 0.5f);
-    int lx3 = cx + (int)(10*s + 0.5f);          // line 3 is shorter
+    int lx3 = cx + (int)(10*s + 0.5f);
     int lys[3] = { cy - (int)(40*s + 0.5f),
                    cy - (int)(18*s + 0.5f),
                    cy + (int)( 5*s + 0.5f) };
@@ -251,39 +271,31 @@ void SplashScreen::DrawLogoIcon(HDC hdc, int cx, int cy, int size) {
     MoveToEx(hdc, lx1, lys[2], nullptr); LineTo(hdc, lx3, lys[2]);
     DeleteObject(lp);
 
-    // ── Pencil (rotated -42°, translated to icon-relative (30,28)) ───────────
-    // cos(-42°) ≈ 0.7431, sin(-42°) ≈ -0.6691
-    float px  = cx + 30.0f * s, py  = cy + 28.0f * s;
-    float ca  = 0.7431f,        sa  = -0.6691f;
+    // ── Pencil (rotated -42°, translated to icon-relative (30,28)) ──────────
+    float px = cx + 30.0f * s, py = cy + 28.0f * s;
+    float ca = 0.7431f, sa = -0.6691f;   // cos/sin of -42°
 
-    // Rotate local pencil point (lx,ry) and map to screen
     auto rot = [&](float lx, float ry) -> POINT {
         return { (LONG)(lx * ca - ry * sa + px + 0.5f),
                  (LONG)(lx * sa + ry * ca + py + 0.5f) };
     };
 
-    float pw  =  7.0f * s;   // half-width of pencil shaft
-    float pbt = -32.0f * s;  // body top
-    float pbb =  18.0f * s;  // body bottom  (= tip base)
-    float ptt =  34.0f * s;  // tip apex
-    float pet = -41.0f * s;  // eraser top
-    float peb = -31.0f * s;  // eraser bottom (= body top - 1px gap)
+    float pw  =  7.0f * s;
+    float pbt = -32.0f * s, pbb = 18.0f * s, ptt = 34.0f * s;
+    float pet = -41.0f * s, peb = -31.0f * s;
 
     HPEN noPen = (HPEN)GetStockObject(NULL_PEN);
     SelectObject(hdc, noPen);
 
-    // Eraser cap (light gray)
-    { POINT p[4] = { rot(-pw, pet), rot(pw, pet), rot(pw, peb), rot(-pw, peb) };
+    { POINT p[4] = { rot(-pw,pet), rot(pw,pet), rot(pw,peb), rot(-pw,peb) };
       HBRUSH br = CreateSolidBrush(RGB(192, 192, 200));
       SelectObject(hdc, br); Polygon(hdc, p, 4); DeleteObject(br); }
 
-    // Pencil body (golden yellow)
-    { POINT p[4] = { rot(-pw, pbt), rot(pw, pbt), rot(pw, pbb), rot(-pw, pbb) };
+    { POINT p[4] = { rot(-pw,pbt), rot(pw,pbt), rot(pw,pbb), rot(-pw,pbb) };
       HBRUSH br = CreateSolidBrush(RGB(255, 209, 102));
       SelectObject(hdc, br); Polygon(hdc, p, 4); DeleteObject(br); }
 
-    // Pencil tip (orange triangle)
-    { POINT p[3] = { rot(-pw, pbb), rot(pw, pbb), rot(0, ptt) };
+    { POINT p[3] = { rot(-pw,pbb), rot(pw,pbb), rot(0,ptt) };
       HBRUSH br = CreateSolidBrush(RGB(240, 160, 32));
       SelectObject(hdc, br); Polygon(hdc, p, 3); DeleteObject(br); }
 }
