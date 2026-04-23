@@ -99,6 +99,8 @@ const wchar_t* const Localization::s_ko[] = {
     L"HWP 이진 형식은 읽기 전용으로만 지원됩니다.",
     L"DOC 이진 형식은 읽기 전용으로만 지원됩니다.",
     L"맞춤법 검사 서비스를 사용할 수 없습니다 (Windows 8 이상 필요).",
+    L"일반 텍스트(.txt)로 저장하면 글꼴 지정, 도형, 표, 서식 등 모든 서식 정보가 손실됩니다.\n계속 저장하시겠습니까?",
+    L"서식 정보 손실 경고",
 
     // STATUS
     L"준비",
@@ -251,6 +253,8 @@ const wchar_t* const Localization::s_en[] = {
     L"HWP binary format is supported for reading only.",
     L"DOC binary format is supported for reading only.",
     L"Spell check service unavailable (requires Windows 8 or later).",
+    L"Saving as plain text (.txt) will discard all formatting including fonts, shapes, tables, and styles.\nContinue saving?",
+    L"Formatting Loss Warning",
 
     // STATUS
     L"Ready",

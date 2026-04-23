@@ -98,6 +98,8 @@ enum class StrID {
     MSG_HWP_READONLY,
     MSG_DOC_READONLY,
     MSG_SPELL_UNAVAILABLE,
+    MSG_TXT_LOSSY_SAVE,
+    MSG_TXT_LOSSY_TITLE,
 
     // Status bar
     STATUS_READY,

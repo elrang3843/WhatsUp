@@ -103,9 +103,23 @@ static std::string XmlEsc(const std::wstring& text) {
     return out;
 }
 
-// HWPX BodyText XML: text is inside <hp:t> elements within <hp:p> paragraphs
+// Case-insensitive substring search
+static size_t FindCI(const std::wstring& s, const std::wstring& pat, size_t from) {
+    if (pat.empty()) return from;
+    for (size_t i = from; i + pat.size() <= s.size(); i++) {
+        bool ok = true;
+        for (size_t k = 0; k < pat.size() && ok; k++)
+            if (towlower(s[i + k]) != towlower(pat[k])) ok = false;
+        if (ok) return i;
+    }
+    return std::wstring::npos;
+}
+
+// HWPX BodyText XML: text is inside <hp:T> elements within <hp:P> paragraphs.
+// Hancom uses mixed-case element names (hp:P, hp:T) — match case-insensitively.
 std::wstring HwpxFormat::ParseBodyText(const std::wstring& xml) {
     std::wostringstream out;
+    bool firstPara = true;
     size_t pos = 0;
     while (pos < xml.size()) {
         size_t tagStart = xml.find(L'<', pos);
@@ -114,20 +128,30 @@ std::wstring HwpxFormat::ParseBodyText(const std::wstring& xml) {
         if (tagEnd == std::wstring::npos) break;
 
         std::wstring tag = xml.substr(tagStart + 1, tagEnd - tagStart - 1);
-        size_t sp = tag.find_first_of(L" /\t");
-        std::wstring name = (sp != std::wstring::npos) ? tag.substr(0, sp) : tag;
+        bool isClose = (!tag.empty() && tag[0] == L'/');
 
-        if (name == L"hp:p" || name == L"hh:p") {
-            out << L'\n';
-        } else if (name == L"hp:t" || name == L"hh:t") {
+        // Extract tag name and lowercase it for comparison
+        size_t nameStart = isClose ? 1 : 0;
+        size_t sp = tag.find_first_of(L" /\t", nameStart);
+        std::wstring rawName = (sp != std::wstring::npos)
+                             ? tag.substr(nameStart, sp - nameStart)
+                             : tag.substr(nameStart);
+        std::wstring name = rawName;
+        for (auto& c : name) c = towlower(c);
+
+        if (!isClose && (name == L"hp:p" || name == L"hh:p")) {
+            if (!firstPara) out << L'\n';
+            firstPara = false;
+        } else if (!isClose && (name == L"hp:t" || name == L"hh:t")) {
             size_t cs = tagEnd + 1;
-            std::wstring closeTag = L"</" + name + L">";
-            size_t ce = xml.find(closeTag, cs);
+            // Case-insensitive search for close tag (e.g. </hp:T> or </hp:t>)
+            std::wstring closeTagL = L"</" + name + L">";
+            size_t ce = FindCI(xml, closeTagL, cs);
             if (ce == std::wstring::npos) { pos = tagEnd + 1; continue; }
             std::wstring text = xml.substr(cs, ce - cs);
             DecodeXml(text);
             out << text;
-            pos = ce + closeTag.size();
+            pos = ce + closeTagL.size();
             continue;
         }
         pos = tagEnd + 1;
