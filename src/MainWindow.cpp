@@ -110,8 +110,11 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     case WM_DESTROY: {
         bool wasFullyCreated = self && self->m_fullyCreated;
-        delete s_instance;
+        // Null s_instance BEFORE delete so any re-entrant WndProc calls
+        // (e.g. EN_KILLFOCUS from the RichEdit's own WM_DESTROY) see nullptr
+        // and skip processing rather than touching the half-destroyed object.
         s_instance = nullptr;
+        delete self;
         if (wasFullyCreated)
             PostQuitMessage(0);
         return 0;
@@ -347,26 +350,55 @@ void MainWindow::CreateToolbars() {
         reinterpret_cast<HMENU>(IDC_COMBO_SIZE), hInst, nullptr);
 
     // Use text-drawing bitmaps for B/I/U etc.
-    HIMAGELIST hFmtImg = ImageList_Create(20, 20, ILC_COLOR32 | ILC_MASK, 16, 0);
+    // ILC_COLOR24: avoids 32-bpp alpha-channel issues where ImageList_AddMasked
+    // would see alpha=0 on every pixel of a plain DDB and treat them all as
+    // transparent, rendering nothing (appears as solid black squares).
+    HIMAGELIST hFmtImg = ImageList_Create(20, 20, ILC_COLOR24 | ILC_MASK, 16, 0);
+    // kMask: light grey used as the transparent/background colour for the mask.
+    static constexpr COLORREF kMask = RGB(0xC0, 0xC0, 0xC0);
     auto makeTextIcon = [&](const wchar_t* label, COLORREF clr) {
-        HDC hdc = GetDC(nullptr);
-        HDC memDC = CreateCompatibleDC(hdc);
-        HBITMAP hBmp = CreateCompatibleBitmap(hdc, 20, 20);
-        SelectObject(memDC, hBmp);
-        RECT rc{ 0,0,20,20 };
-        FillRect(memDC, &rc, reinterpret_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
-        SetTextColor(memDC, clr);
-        SetBkMode(memDC, TRANSPARENT);
-        HFONT hf = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                               CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        SelectObject(memDC, hf);
-        DrawTextW(memDC, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-        DeleteObject(hf);
-        ImageList_AddMasked(hFmtImg, hBmp, RGB(255,255,255));
-        DeleteObject(hBmp);
+        HDC hdcScreen = GetDC(nullptr);
+        HDC memDC     = CreateCompatibleDC(hdcScreen);
+
+        // Use a 24-bpp DIB section so the pixel data is well-defined (no
+        // uninitialised alpha bytes that confuse ILC_COLOR32 image lists).
+        BITMAPINFOHEADER bih{};
+        bih.biSize        = sizeof(bih);
+        bih.biWidth       = 20;
+        bih.biHeight      = -20;  // top-down
+        bih.biPlanes      = 1;
+        bih.biBitCount    = 24;
+        bih.biCompression = BI_RGB;
+        void*   pBits = nullptr;
+        HBITMAP hBmp  = CreateDIBSection(hdcScreen,
+                            reinterpret_cast<BITMAPINFO*>(&bih),
+                            DIB_RGB_COLORS, &pBits, nullptr, 0);
+        if (hBmp) {
+            HBITMAP hOld = reinterpret_cast<HBITMAP>(SelectObject(memDC, hBmp));
+
+            RECT rc{ 0, 0, 20, 20 };
+            HBRUSH hBg = CreateSolidBrush(kMask);
+            FillRect(memDC, &rc, hBg);
+            DeleteObject(hBg);
+
+            SetTextColor(memDC, clr);
+            SetBkMode(memDC, TRANSPARENT);
+
+            HFONT hf = CreateFontW(14, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                   CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                   DEFAULT_PITCH, L"Segoe UI");
+            HFONT hOldFont = reinterpret_cast<HFONT>(SelectObject(memDC, hf));
+            DrawTextW(memDC, label, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            SelectObject(memDC, hOldFont);
+            DeleteObject(hf);
+
+            SelectObject(memDC, hOld);  // deselect before passing to image list
+            ImageList_AddMasked(hFmtImg, hBmp, kMask);
+            DeleteObject(hBmp);
+        }
         DeleteDC(memDC);
-        ReleaseDC(nullptr, hdc);
+        ReleaseDC(nullptr, hdcScreen);
     };
     // Build icon set: B I U S Al Ac Ar Aj In Out • # Fc Hi
     makeTextIcon(L"B",  RGB(0,0,0));       // 0 Bold
@@ -429,6 +461,7 @@ void MainWindow::CreateToolbars() {
 
     SIZE szFmt{}; SendMessageW(m_hwndFmtTb, TB_GETMAXSIZE, 0,
                                reinterpret_cast<LPARAM>(&szFmt));
+    rbi.fStyle     = RBBS_CHILDEDGE | RBBS_NOGRIPPER | RBBS_BREAK; // own row
     rbi.hwndChild  = m_hwndFmtTb;
     rbi.cyChild    = szFmt.cy; rbi.cyMinChild = szFmt.cy;
     rbi.cx         = szFmt.cx;
@@ -484,11 +517,15 @@ void MainWindow::PopulateSizeCombo() {
 // Layout
 // ─────────────────────────────────────────────
 void MainWindow::OnSize(int cx, int cy) {
-    RECT rcRebar{}, rcStatus{};
-    if (m_hwndRebar)  GetWindowRect(m_hwndRebar,  &rcRebar);
-    if (m_hwndStatus) GetWindowRect(m_hwndStatus, &rcStatus);
+    // RB_GETBARHEIGHT returns the actual height the rebar needs based on its
+    // bands, which is correct even before the rebar window has been explicitly
+    // sized (the rebar may be at size 0,0 on first call).
+    int rebarH = m_hwndRebar
+        ? static_cast<int>(SendMessageW(m_hwndRebar, RB_GETBARHEIGHT, 0, 0))
+        : 0;
 
-    int rebarH  = rcRebar.bottom  - rcRebar.top;
+    RECT rcStatus{};
+    if (m_hwndStatus) GetWindowRect(m_hwndStatus, &rcStatus);
     int statusH = rcStatus.bottom - rcStatus.top;
 
     if (m_hwndRebar)
