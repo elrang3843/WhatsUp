@@ -3,6 +3,48 @@
 #include <sstream>
 #include <algorithm>
 
+static const std::string kRtfHeader =
+    "{\\rtf1\\ansi\\deff2\n"
+    "{\\fonttbl\n"
+    "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
+    "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
+    "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
+    "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
+    "}\n"
+    "\\f2\\fs22\\pard\\ql\n";
+
+static std::string RtfEnc(const std::wstring& ws) {
+    std::string s;
+    s.reserve(ws.size() * 2);
+    for (wchar_t c : ws) {
+        if      (c == L'\\') s += "\\\\";
+        else if (c == L'{')  s += "\\{";
+        else if (c == L'}')  s += "\\}";
+        else if (c == L'\r') {}
+        else if (c < 128)    s += static_cast<char>(c);
+        else {
+            s += "\\u";
+            s += std::to_string(static_cast<int>(static_cast<int16_t>(c)));
+            s += "?";
+        }
+    }
+    return s;
+}
+
+// Wrap plain text lines in minimal RTF so theme/font applies correctly
+static std::string TextToRtf(const std::wstring& text) {
+    std::string body;
+    std::wistringstream in(text);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        body += "\\pard\\ql ";
+        body += RtfEnc(line);
+        body += "\\par\n";
+    }
+    return kRtfHeader + body + "}";
+}
+
 // Case-insensitive ZIP entry lookup — real HWPX files vary in capitalization
 static std::string FindEntryCI(const ZipReader& zip, const std::string& name) {
     std::string lower = name;
@@ -194,8 +236,12 @@ FormatResult HwpxFormat::Load(const std::wstring& path, Document& doc) {
         combined << ParseBodyText(sxml);
     }
 
-    r.content = combined.str();
-    r.rtf     = false;
+    std::wstring text = combined.str();
+    if (text.empty()) { r.error = L"HWPX text extraction failed."; return r; }
+
+    std::string rtf = TextToRtf(text);
+    r.content = std::wstring(rtf.begin(), rtf.end());
+    r.rtf     = true;
     r.ok      = true;
     return r;
 }

@@ -25,35 +25,35 @@ static std::vector<uint8_t> ReadFileBytes(const std::wstring& path) {
     return buf;
 }
 
-// zlib inflate: handles both zlib (0x78xx header) and raw deflate
+// zlib inflate: tries zlib/gzip auto-detect, then raw deflate on failure
 static std::vector<uint8_t> InflateData(const std::vector<uint8_t>& src) {
     if (src.empty()) return {};
-    std::vector<uint8_t> out;
-    out.reserve(src.size() * 4);
 
-    z_stream z{};
-    // MAX_WBITS+32: auto-detect zlib or gzip header;
-    // on failure fall back to raw deflate (negative wbits)
-    int ret = inflateInit2(&z, MAX_WBITS + 32);
-    if (ret != Z_OK) {
-        ret = inflateInit2(&z, -MAX_WBITS);
-        if (ret != Z_OK) return {};
+    for (int wbits : { MAX_WBITS + 32, -MAX_WBITS }) {
+        std::vector<uint8_t> out;
+        out.reserve(src.size() * 4);
+
+        z_stream z{};
+        if (inflateInit2(&z, wbits) != Z_OK) continue;
+
+        z.avail_in = static_cast<uInt>(src.size());
+        z.next_in  = const_cast<Bytef*>(src.data());
+
+        int ret = Z_OK;
+        do {
+            size_t off = out.size();
+            out.resize(off + 65536);
+            z.avail_out = 65536;
+            z.next_out  = out.data() + off;
+            ret = inflate(&z, Z_NO_FLUSH);
+            out.resize(off + 65536 - z.avail_out);
+        } while (ret == Z_OK && z.avail_in > 0);
+
+        inflateEnd(&z);
+        if (ret == Z_STREAM_END || ret == Z_OK) return out;
+        // inflate failed — try next window-bits variant
     }
-
-    z.avail_in  = static_cast<uInt>(src.size());
-    z.next_in   = const_cast<Bytef*>(src.data());
-
-    do {
-        size_t off = out.size();
-        out.resize(off + 65536);
-        z.avail_out = 65536;
-        z.next_out  = out.data() + off;
-        ret = inflate(&z, Z_NO_FLUSH);
-        out.resize(off + 65536 - z.avail_out);
-    } while (ret == Z_OK && z.avail_in > 0);
-
-    inflateEnd(&z);
-    return (ret == Z_STREAM_END || ret == Z_OK) ? out : std::vector<uint8_t>{};
+    return {};
 }
 
 std::wstring HwpFormat::ExtractText(const std::vector<uint8_t>& data) {
@@ -150,14 +150,15 @@ static bool IsHwpBodyCompressed(const std::wstring& path) {
     bool compressed = true;
     if (pStream) {
         // FileHeader: 32-byte signature + 4-byte version + 4-byte flags
+        // Flags are at byte offset 36 (not 32 which is the version DWORD)
         uint8_t hdr[40] = {};
         ULONG read = 0;
         pStream->Read(hdr, sizeof(hdr), &read);
-        if (read >= 36) {
-            uint32_t flags = static_cast<uint32_t>(hdr[32])
-                           | (static_cast<uint32_t>(hdr[33]) << 8)
-                           | (static_cast<uint32_t>(hdr[34]) << 16)
-                           | (static_cast<uint32_t>(hdr[35]) << 24);
+        if (read >= 40) {
+            uint32_t flags = static_cast<uint32_t>(hdr[36])
+                           | (static_cast<uint32_t>(hdr[37]) << 8)
+                           | (static_cast<uint32_t>(hdr[38]) << 16)
+                           | (static_cast<uint32_t>(hdr[39]) << 24);
             compressed = (flags & 1) != 0;
         }
         pStream->Release();

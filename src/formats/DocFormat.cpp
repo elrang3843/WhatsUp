@@ -6,6 +6,47 @@
 #include <vector>
 #include <cstdint>
 
+static const std::string kRtfHeader =
+    "{\\rtf1\\ansi\\deff2\n"
+    "{\\fonttbl\n"
+    "{\\f0\\froman\\fcharset0 Times New Roman;}\n"
+    "{\\f1\\fswiss\\fcharset0 Calibri;}\n"
+    "{\\f2\\fswiss\\fcharset129 Malgun Gothic;}\n"
+    "{\\f3\\fmodern\\fcharset0 Courier New;}\n"
+    "}\n"
+    "\\f2\\fs22\\pard\\ql\n";
+
+static std::string RtfEnc(const std::wstring& ws) {
+    std::string s;
+    s.reserve(ws.size() * 2);
+    for (wchar_t c : ws) {
+        if      (c == L'\\') s += "\\\\";
+        else if (c == L'{')  s += "\\{";
+        else if (c == L'}')  s += "\\}";
+        else if (c == L'\r') {}
+        else if (c < 128)    s += static_cast<char>(c);
+        else {
+            s += "\\u";
+            s += std::to_string(static_cast<int>(static_cast<int16_t>(c)));
+            s += "?";
+        }
+    }
+    return s;
+}
+
+static std::string TextToRtf(const std::wstring& text) {
+    std::string body;
+    std::wistringstream in(text);
+    std::wstring line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        body += "\\pard\\ql ";
+        body += RtfEnc(line);
+        body += "\\par\n";
+    }
+    return kRtfHeader + body + "}";
+}
+
 // DOC format: OLE2 Compound Document (Word 97-2003).
 // Text is located via the Clx (piece table) stored in the 1Table/0Table stream.
 // FIB field fcClx is at offset 418 in the WordDocument stream (FibRgFcLcb97[33]).
@@ -140,8 +181,9 @@ FormatResult DocFormat_::Load(const std::wstring& path, Document& doc) {
         r.error = L"DOC text extraction failed. Only Word 97-2003 Unicode documents are supported (read-only).";
         return r;
     }
-    r.content = text;
-    r.rtf     = false;
+    std::string rtf = TextToRtf(text);
+    r.content = std::wstring(rtf.begin(), rtf.end());
+    r.rtf     = true;
     r.ok      = true;
     return r;
 }
