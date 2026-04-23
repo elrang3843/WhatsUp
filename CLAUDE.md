@@ -40,7 +40,11 @@ All format handlers convert their native format into a `cdm::Document` tree defi
 - `ParagraphStyle` — alignment, indents, spacing, line-break mode
 - `StyleDefinition` — named style with `TextStyle` + `ParagraphStyle`; nodes reference these via `styleRef` (a `std::string` ID)
 
-**Critical design rule**: `directStyle` is the inline/direct formatting; `styleRef` is a reference to a named `StyleDefinition` in `doc.styles`. The Normalization stage is responsible for resolving `styleRef` → merging into `directStyle`, and for promoting paragraphs whose `styleRef` matches "Heading1"–"Heading6" into `Heading` blocks. **This resolve+promote step is not yet implemented** and is the primary cause of DOCX/HWPX headings appearing as plain paragraphs.
+**Critical design rule**: `directStyle` is the inline/direct formatting; `styleRef` is a reference to a named `StyleDefinition` in `doc.styles`. Normalization resolves `styleRef` → merges into `directStyle` (direct wins, named style fills gaps) and promotes paragraphs whose `styleRef` matches a heading name into `Heading` blocks.
+
+**Merge semantics** (in `CdmNormalizer.cpp`):
+- *Overlay* — src overwrites dst where src has a value (leaf wins). Used when walking a style's `basedOn` chain root → leaf.
+- *Inherit* — src only fills empty slots on dst (dst/direct wins). Used when merging a resolved named style into a node's `directStyle`.
 
 ### Building a CDM document: `DocumentBuilder` (`src/cdm/document_builder.hpp`)
 
@@ -62,11 +66,14 @@ cdm::Document doc = b.MoveBuild();
 
 ### Normalization (`src/cdm/CdmNormalizer.hpp`)
 
-`cdm::Normalize(Document&)` currently only merges adjacent `Text` inlines with identical `directStyle`. **Missing steps** (high priority):
+`cdm::Normalize(Document&)` is a 4-stage pipeline run over every section. Format handlers are expected to emit raw CDM; normalization is the single place these passes live.
 
-1. **Resolve style refs** — for each `Paragraph`/`Text`/`Inline` with a `styleRef`, find the matching `StyleDefinition` in `doc.styles` and merge its `TextStyle`/`ParagraphStyle` into `directStyle` (direct style wins on conflict)
-2. **Promote heading paragraphs** — paragraphs whose resolved style name matches `"Heading1"`–`"Heading6"` (case-insensitive) should be replaced with `Heading` blocks
-3. **Normalize line breaks** — collapse consecutive empty paragraphs, strip trailing whitespace
+1. **`ResolveBlocks`** — for each `Paragraph`/`Heading`/`Text`/`InlineCode`/`InlineContainer` with a `styleRef`, walk the `basedOn` chain (cycle-guarded), produce a `ResolvedStyle`, and `InheritTextStyle`/`InheritParaStyle` it into `directStyle`. Inline containers also build a *cascade* (`OverlayTextStyle` of resolved + direct) that propagates to children so nested `Text` inherits the container's font/size/color.
+2. **`PromoteHeadings`** — `Paragraph` whose `styleRef` (or the referenced definition's `name`) normalizes to `heading1`–`heading6` is rewritten in-place into a `Heading` block with the matching `level`. `title`→1, `subtitle`→2 are also recognized. `NormName` strips spaces/underscores/hyphens and lowercases for matching.
+3. **`NormalizeBlocks` / `MergeAdjacentText`** — fold consecutive `Text` inlines that share identical `styleRef` *and* `directStyle` (see `StylesEqual`). Dramatically shrinks DOCX per-character runs.
+4. **`CollapseEmptyParagraphs`** — drop runs of consecutive empty `Paragraph`s (empty = no inlines, or only empty `Text`). Any non-`Text` inline (Image, Break, …) means "not empty".
+
+All stages recurse into container blocks: `BlockQuote`, `ListBlock` items, `Table` cells, `CustomBlock`.
 
 ### Rendering: `CdmLoader` (`src/CdmLoader.h/.cpp`)
 
@@ -120,7 +127,8 @@ m_editor->SetBackground(bgColor);
 
 ## Development branch
 
-All work goes to `claude/whats-up-text-editor-OwYMn`. Push with:
+Active development branch is `claude/init-project-setup-mB09Z`. Push with:
 ```bash
-git push -u origin claude/whats-up-text-editor-OwYMn
+git push -u origin claude/init-project-setup-mB09Z
 ```
+(Earlier work landed on `claude/whats-up-text-editor-OwYMn`; check `git log` to confirm the current branch before pushing.)
