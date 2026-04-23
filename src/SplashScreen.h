@@ -22,8 +22,9 @@ private:
     static void DrawText_(HDC hdc, const wchar_t* text, HFONT hfont,
                           COLORREF color, const RECT& rc, UINT fmt);
 
-    static int   s_progress;   // 0–100
-    static HWND  s_hwnd;
+    static int       s_progress;   // 0–100
+    static HWND      s_hwnd;
+    static UINT_PTR  s_timerId;
 
     static constexpr wchar_t kClass[] = L"WhatsUpSplash";
 };

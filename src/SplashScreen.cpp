@@ -8,8 +8,9 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-int  SplashScreen::s_progress = 0;
-HWND SplashScreen::s_hwnd     = nullptr;
+int       SplashScreen::s_progress = 0;
+HWND      SplashScreen::s_hwnd     = nullptr;
+UINT_PTR  SplashScreen::s_timerId  = 0;
 
 // ---- Main entry ----
 void SplashScreen::Show(HINSTANCE hInst, int totalMs) {
@@ -41,15 +42,15 @@ void SplashScreen::Show(HINSTANCE hInst, int totalMs) {
 
     // Progress timer: fire every ~28ms for ~100 steps
     int stepMs = totalMs / 100;
-    UINT_PTR timerId = SetTimer(s_hwnd, 1, static_cast<UINT>(stepMs > 0 ? stepMs : 28), nullptr);
+    s_timerId = SetTimer(s_hwnd, 1, static_cast<UINT>(stepMs > 0 ? stepMs : 28), nullptr);
 
-    // Message pump until splash closes
+    // Pump until WM_DESTROY posts WM_QUIT; loop consumes it so the main
+    // window's pump starts with a clean queue.
     MSG msg{};
-    while (s_hwnd && IsWindow(s_hwnd) && GetMessageW(&msg, nullptr, 0, 0)) {
+    while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    KillTimer(s_hwnd ? s_hwnd : nullptr, timerId);
     UnregisterClassW(kClass, hInst);
 }
 
@@ -67,14 +68,12 @@ LRESULT CALLBACK SplashScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         if (wParam == 1) {
             s_progress = std::min(s_progress + 1, 100);
             InvalidateRect(hwnd, nullptr, FALSE);
-            if (s_progress >= 100) {
+            if (s_progress >= 100)
                 DestroyWindow(hwnd);
-                s_hwnd = nullptr;
-                PostQuitMessage(0);
-            }
         }
         return 0;
     case WM_DESTROY:
+        KillTimer(hwnd, s_timerId);
         s_hwnd = nullptr;
         PostQuitMessage(0);
         return 0;
@@ -82,8 +81,6 @@ LRESULT CALLBACK SplashScreen::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
         // Allow clicking to skip splash
         s_progress = 100;
         DestroyWindow(hwnd);
-        s_hwnd = nullptr;
-        PostQuitMessage(0);
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
@@ -103,33 +100,34 @@ void SplashScreen::OnPaint(HWND hwnd, HDC hdc) {
     // Background
     DrawGradientBackground(memDC, rc);
 
-    int cx = w / 2, cy = h / 2 - 60;
+    // cy is shifted higher so text rows + progress bar fit without overlap
+    int cx = w / 2, cy = h / 2 - 80;   // 200 when h=560
 
     // Glow
-    DrawGlowCircle(memDC, cx, cy, 130);
+    DrawGlowCircle(memDC, cx, cy, 120);
 
     // Gear logo
-    DrawLogoIcon(memDC, cx, cy, 220);
+    DrawLogoIcon(memDC, cx, cy, 200);
 
-    // "What's Up" title
-    HFONT hTitleFont = CreateFontW(58, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+    // "What's Up" title  [cy+120 .. cy+180]
+    HFONT hTitleFont = CreateFontW(56, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
                                    DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                    CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                    DEFAULT_PITCH, L"Segoe UI");
-    RECT rcTitle{ 0, cy + 145, w, cy + 210 };
+    RECT rcTitle{ 0, cy + 120, w, cy + 180 };
     DrawText_(memDC, L"What's Up", hTitleFont, RGB(255, 255, 255), rcTitle, DT_CENTER | DT_SINGLELINE);
     DeleteObject(hTitleFont);
 
-    // "TEXT EDITOR" subtitle
+    // "TEXT EDITOR" subtitle  [cy+184 .. cy+210]
     HFONT hSubFont = CreateFontW(22, 0, 0, 0, FW_SEMIBOLD, FALSE, FALSE, FALSE,
                                   DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                   CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                   DEFAULT_PITCH, L"Segoe UI");
-    RECT rcSub{ 0, cy + 218, w, cy + 248 };
+    RECT rcSub{ 0, cy + 184, w, cy + 210 };
     DrawText_(memDC, L"TEXT EDITOR", hSubFont, RGB(200, 220, 255), rcSub, DT_CENTER | DT_SINGLELINE);
 
-    // "Open Source · Handtech"
-    RECT rcBrand{ 0, cy + 252, w, cy + 276 };
+    // "Open Source · Handtech"  [cy+214 .. cy+238]
+    RECT rcBrand{ 0, cy + 214, w, cy + 238 };
     DrawText_(memDC, L"Open Source  ·  Handtech", hSubFont, RGB(130, 170, 230), rcBrand, DT_CENTER | DT_SINGLELINE);
     DeleteObject(hSubFont);
 
@@ -148,11 +146,11 @@ void SplashScreen::OnPaint(HWND hwnd, HDC hdc) {
                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                                 CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                 DEFAULT_PITCH, L"Segoe UI");
-    RECT rcMsg{ 0, h - 100, w, h - 80 };
+    RECT rcMsg{ 0, h - 90, w, h - 72 };
     DrawText_(memDC, s_steps[stepIdx], hSmall, RGB(200, 220, 255), rcMsg, DT_CENTER | DT_SINGLELINE);
     DeleteObject(hSmall);
 
-    RECT rcBar{ w / 2 - 200, h - 76, w / 2 + 200, h - 60 };
+    RECT rcBar{ w / 2 - 200, h - 66, w / 2 + 200, h - 50 };
     DrawProgressBar(memDC, rcBar, s_progress / 100.f);
 
     // Version
