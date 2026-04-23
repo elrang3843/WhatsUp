@@ -105,7 +105,7 @@ LRESULT CALLBACK MainWindow::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (self) self->OnSize(LOWORD(lParam), HIWORD(lParam));
         return 0;
     case WM_COMMAND:
-        if (self) self->OnCommand(LOWORD(wParam));
+        if (self) self->OnCommand(LOWORD(wParam), HIWORD(wParam));
         return 0;
     case WM_NOTIFY:
         if (self) self->OnNotify(reinterpret_cast<NMHDR*>(lParam));
@@ -551,7 +551,7 @@ void MainWindow::OnSize(int cx, int cy) {
 // ─────────────────────────────────────────────
 // OnCommand — route all IDs
 // ─────────────────────────────────────────────
-void MainWindow::OnCommand(UINT id) {
+void MainWindow::OnCommand(UINT id, UINT notif) {
     switch (id) {
     case ID_FILE_NEW:     FileNew();    break;
     case ID_FILE_OPEN:    FileOpen();   break;
@@ -651,8 +651,14 @@ void MainWindow::OnCommand(UINT id) {
         break;
     case ID_HELP_ABOUT: ShowAbout(); break;
 
-    case IDC_COMBO_FONT: OnFontComboChange(); break;
-    case IDC_COMBO_SIZE: OnSizeComboChange(); break;
+    case IDC_COMBO_FONT:
+        if (notif == CBN_SELCHANGE || notif == CBN_EDITCHANGE)
+            OnFontComboChange();
+        break;
+    case IDC_COMBO_SIZE:
+        if (notif == CBN_SELCHANGE || notif == CBN_EDITCHANGE)
+            OnSizeComboChange();
+        break;
     }
     UpdateToolbarState();
 }
@@ -852,6 +858,10 @@ void MainWindow::ShowFindDialog(bool replace) {
 
     m_hwndFind = replace ? ReplaceTextW(m_pFindReplace)
                          : FindTextW(m_pFindReplace);
+    if (!m_hwndFind) {
+        delete m_pFindReplace;
+        m_pFindReplace = nullptr;
+    }
 }
 
 void MainWindow::OnFindMsg(FINDREPLACEW* fr) {
@@ -862,6 +872,7 @@ void MainWindow::OnFindMsg(FINDREPLACEW* fr) {
         m_pFindReplace = nullptr;
         return;
     }
+    if (!m_editor || !m_editor->GetHwnd()) return;
     Editor::FindOptions opts;
     opts.findText   = fr->lpstrFindWhat;
     opts.replaceText= fr->lpstrReplaceWith ? fr->lpstrReplaceWith : L"";
@@ -1152,7 +1163,8 @@ void MainWindow::OnTextChanged() {
 // Font / Size combo changes
 // ─────────────────────────────────────────────
 void MainWindow::OnFontComboChange() {
-    wchar_t name[LF_FACESIZE] = {};
+    if (!m_editor || !m_editor->GetHwnd()) return;
+    wchar_t name[256] = {};
     int idx = static_cast<int>(SendMessageW(m_hwndFontCombo, CB_GETCURSEL, 0, 0));
     if (idx < 0) return;
     SendMessageW(m_hwndFontCombo, CB_GETLBTEXT, idx, reinterpret_cast<LPARAM>(name));
@@ -1162,6 +1174,7 @@ void MainWindow::OnFontComboChange() {
 }
 
 void MainWindow::OnSizeComboChange() {
+    if (!m_editor || !m_editor->GetHwnd()) return;
     wchar_t buf[16] = {};
     GetWindowTextW(m_hwndSizeCombo, buf, _countof(buf));
     int pt = _wtoi(buf);

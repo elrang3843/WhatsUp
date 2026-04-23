@@ -30,7 +30,7 @@ private:
     void OnSize(int cx, int cy);
 
     // Commands
-    void OnCommand(UINT id);
+    void OnCommand(UINT id, UINT notif);
     void OnNotify(NMHDR* nmhdr);
 
     // File operations
