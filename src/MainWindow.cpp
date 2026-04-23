@@ -112,7 +112,11 @@ bool MainWindow::OnCreate(HWND hwnd, HINSTANCE hInst) {
     m_spell = std::make_unique<SpellChecker>();
     m_ac    = std::make_unique<AutoComplete>();
 
-    if (!m_editor->Create(hwnd, IDC_EDITOR)) return false;
+    if (!m_editor->Create(hwnd, IDC_EDITOR)) {
+        MessageBoxW(hwnd, L"편집기 초기화에 실패했습니다.\n(Editor::Create 실패)",
+                    L"WhatsUp 오류", MB_OK | MB_ICONERROR);
+        return false;
+    }
 
     BuildMenu();
     CreateToolbars();

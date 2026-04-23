@@ -13,27 +13,45 @@ Editor::Editor()  = default;
 Editor::~Editor() { Destroy(); }
 
 bool Editor::Create(HWND hwndParent, UINT controlId) {
-    // Msftedit.dll registers "RICHEDIT50W"; Riched20.dll registers "RichEdit20W".
-    // Must match the class name to the DLL that was actually loaded.
-    m_hRichEd = LoadLibraryW(L"Msftedit.dll");
-    const wchar_t* editClass = MSFTEDIT_CLASS; // L"RICHEDIT50W"
-    if (!m_hRichEd) {
-        m_hRichEd  = LoadLibraryW(L"Riched20.dll");
-        editClass  = RICHEDIT_CLASS; // L"RichEdit20W"
+    // Try RichEdit 5.0 (Msftedit.dll) then 2.0 (Riched20.dll), using each
+    // DLL's own registered class name.  The two DLLs register different class
+    // names: Msftedit -> RICHEDIT50W, Riched20 -> RichEdit20W.
+    struct { LPCWSTR dll; LPCWSTR cls; } kEdits[] = {
+        { L"Msftedit.dll", MSFTEDIT_CLASS },   // RICHEDIT50W
+        { L"Riched20.dll", RICHEDIT_CLASS  },   // RichEdit20W
+    };
+
+    for (auto& e : kEdits) {
+        HMODULE h = LoadLibraryW(e.dll);
+        if (!h) continue;
+
+        HWND hw = CreateWindowExW(
+            WS_EX_CLIENTEDGE, e.cls, nullptr,
+            WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL
+            | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL
+            | ES_NOHIDESEL | ES_WANTRETURN,
+            0, 0, 0, 0,
+            hwndParent, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(controlId)),
+            GetModuleHandleW(nullptr), nullptr);
+
+        if (hw) {
+            m_hRichEd = h;
+            m_hwnd    = hw;
+            break;
+        }
+        FreeLibrary(h);
     }
 
-    m_hwnd = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
-        editClass,
-        nullptr,
-        WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL
-        | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL
-        | ES_NOHIDESEL | ES_WANTRETURN,
-        0, 0, 0, 0,
-        hwndParent, reinterpret_cast<HMENU>(static_cast<UINT_PTR>(controlId)),
-        GetModuleHandleW(nullptr), nullptr);
-
-    if (!m_hwnd) return false;
+    if (!m_hwnd) {
+        wchar_t buf[320];
+        swprintf_s(buf, _countof(buf),
+            L"RichEdit 컨트롤을 생성할 수 없습니다.\n"
+            L"Msftedit.dll 및 Riched20.dll 로드/클래스 등록 실패.\n"
+            L"마지막 오류 코드: %lu (0x%08lX)",
+            GetLastError(), GetLastError());
+        MessageBoxW(hwndParent, buf, L"WhatsUp 초기화 오류", MB_OK | MB_ICONERROR);
+        return false;
+    }
 
     // Enable Unicode text
     SendMessageW(m_hwnd, EM_SETTEXTMODE, TM_PLAINTEXT | TM_MULTILEVELUNDO, 0);
