@@ -117,11 +117,6 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
     std::string                    cellBuf;
     int                            cellW = 0;
 
-    auto& destRef = [&]() -> std::string& {  // helper not used directly; use lambda below
-        return inCell ? cellBuf : body;
-    };
-    (void)destRef;
-
     size_t pos = 0;
     while (pos < xml.size()) {
         size_t lt = xml.find(L'<', pos);
@@ -141,8 +136,6 @@ std::string DocxFormat::ParseDocumentXmlToRtf(const std::wstring& xml) {
         { size_t i = isE ? 1 : 0;
           while (i < raw.size() && raw[i] != L' ' && raw[i] != L'/' &&
                  raw[i] != L'\t' && raw[i] != L'\n') nm += raw[i++]; }
-
-        std::string& dest = inCell ? cellBuf : body;
 
         // --- Track deletion blocks (skip their content) ---
         if (nm == L"w:del")  { inDel = !isE;  continue; }

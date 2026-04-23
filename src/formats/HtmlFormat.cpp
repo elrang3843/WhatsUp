@@ -41,9 +41,9 @@ static const std::string kRtfHeader =
     "}\n"
     "\\f2\\fs22\\pard\\ql\n";
 
-// ── Entity decoder (used by Load and WrapHtml) ────────────────────────────────
+// ── Entity decoder ────────────────────────────────────────────────────────────
 
-std::wstring HtmlFormat::DecodeEntities(const std::wstring& text) {
+static std::wstring DecodeEntities(const std::wstring& text) {
     std::wstring r;
     r.reserve(text.size());
     for (size_t i = 0; i < text.size(); ++i) {
@@ -69,42 +69,6 @@ std::wstring HtmlFormat::DecodeEntities(const std::wstring& text) {
     return r;
 }
 
-// ── StripTags: kept for internal use ─────────────────────────────────────────
-
-std::wstring HtmlFormat::StripTags(const std::wstring& html) {
-    std::wstring result;
-    bool inTag = false, inScript = false, inStyle = false;
-    for (size_t i = 0; i < html.size(); ++i) {
-        if (html[i] == L'<') {
-            if (i + 6 < html.size()) {
-                std::wstring t = html.substr(i + 1, 6);
-                std::transform(t.begin(), t.end(), t.begin(), ::towlower);
-                if (t.substr(0,6) == L"script") inScript = true;
-                if (t.substr(0,5) == L"style")  inStyle  = true;
-                if (t.substr(0,7) == L"/script") inScript = false;
-                if (t.substr(0,6) == L"/style")  inStyle  = false;
-            }
-            inTag = true;
-            if (i + 1 < html.size()) {
-                std::wstring tagname;
-                size_t j = i + 1;
-                if (html[j] == L'/') ++j;
-                while (j < html.size() && html[j] != L'>' && !iswspace(html[j]))
-                    tagname += towlower(html[j++]);
-                if (tagname == L"p"  || tagname == L"br" || tagname == L"div" ||
-                    tagname == L"h1" || tagname == L"h2" || tagname == L"h3" ||
-                    tagname == L"h4" || tagname == L"h5" || tagname == L"h6" ||
-                    tagname == L"li" || tagname == L"tr")
-                    result += L'\n';
-            }
-            continue;
-        }
-        if (html[i] == L'>') { inTag = false; continue; }
-        if (!inTag && !inScript && !inStyle) result += html[i];
-    }
-    return result;
-}
-
 // ── HTML → RTF converter ──────────────────────────────────────────────────────
 
 static std::string HtmlToRtf(const std::wstring& html) {
@@ -123,9 +87,6 @@ static std::string HtmlToRtf(const std::wstring& html) {
     bool                           cellIsHdr = false;
     bool                           inCell = false, inRow = false, inTable = false;
 
-    auto& dest = [&]() -> std::string& { return inCell ? cellBuf : body; };
-    (void)dest;
-
     size_t pos = 0;
     while (pos < html.size()) {
         // Text content
@@ -134,7 +95,7 @@ static std::string HtmlToRtf(const std::wstring& html) {
                 size_t end = html.find(L'<', pos);
                 if (end == std::wstring::npos) end = html.size();
                 std::wstring raw = html.substr(pos, end - pos);
-                std::wstring decoded = HtmlFormat::DecodeEntities(raw);
+                std::wstring decoded = DecodeEntities(raw);
                 // Collapse whitespace for non-pre content
                 std::wstring norm;
                 bool lastWs = false;
