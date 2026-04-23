@@ -43,6 +43,37 @@ BEGIN
     END
 END
 
+// ============================================================
+// Keyboard Accelerators
+// ============================================================
+IDR_ACCELERATORS ACCELERATORS
+BEGIN
+    // File
+    "N",    ID_FILE_NEW,        VIRTKEY, ALT
+    "O",    ID_FILE_OPEN,       VIRTKEY, ALT
+    "S",    ID_FILE_SAVE,       VIRTKEY, ALT
+    "V",    ID_FILE_SAVEAS,     VIRTKEY, ALT
+    "P",    ID_FILE_PRINT,      VIRTKEY, ALT
+    VK_F4,  ID_FILE_CLOSE,      VIRTKEY, CONTROL
+    "X",    ID_FILE_EXIT,       VIRTKEY, ALT
+
+    // Edit
+    "Z",    ID_EDIT_UNDO,       VIRTKEY, CONTROL
+    "Z",    ID_EDIT_REDO,       VIRTKEY, CONTROL, SHIFT
+    "X",    ID_EDIT_CUT,        VIRTKEY, CONTROL
+    "C",    ID_EDIT_COPY,       VIRTKEY, CONTROL
+    "V",    ID_EDIT_PASTE,      VIRTKEY, CONTROL
+    "F",    ID_EDIT_FIND,       VIRTKEY, CONTROL
+    "H",    ID_EDIT_REPLACE,    VIRTKEY, CONTROL
+    "Q",    ID_EDIT_DOCINFO,    VIRTKEY, CONTROL
+    "A",    ID_EDIT_SELECTALL,  VIRTKEY, CONTROL
+
+    // Format
+    "B",    ID_FORMAT_BOLD,     VIRTKEY, CONTROL
+    "I",    ID_FORMAT_ITALIC,   VIRTKEY, CONTROL
+    "U",    ID_FORMAT_UNDERLINE,VIRTKEY, CONTROL
+END
+
 // String table
 STRINGTABLE
 BEGIN

@@ -1,5 +1,6 @@
 #include "Application.h"
 #include "MainWindow.h"
+#include "resource.h"
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <commctrl.h>
@@ -29,14 +30,18 @@ bool Application::Init(HINSTANCE hInst, int nCmdShow) {
     // editor and toolbar layout are fully ready, so the first visible paint
     // is already correct — the toolbar never needs a mouse hover to appear.
     m_hMainWnd = MainWindow::Create(hInst);
-    return m_hMainWnd != nullptr;
+    if (!m_hMainWnd) return false;
+    m_hAccel = LoadAcceleratorsW(m_hInst, MAKEINTRESOURCEW(IDR_ACCELERATORS));
+    return true;
 }
 
 int Application::Run() {
     MSG msg{};
     while (GetMessage(&msg, nullptr, 0, 0)) {
         HWND hFind = MainWindow::GetFindDlg();
-        if (hFind && IsDialogMessage(hFind, &msg))
+        if (hFind && IsWindow(hFind) && IsDialogMessage(hFind, &msg))
+            continue;
+        if (m_hAccel && TranslateAccelerator(m_hMainWnd, m_hAccel, &msg))
             continue;
         TranslateMessage(&msg);
         DispatchMessage(&msg);

@@ -448,10 +448,10 @@ bool Editor::FindNext(const FindOptions& opts) {
     }
     ft.lpstrText = opts.findText.c_str();
 
-    WPARAM flags = opts.forward ? 0 : FR_DOWN;
+    WPARAM flags = 0;
+    if (opts.forward)   flags |= FR_DOWN;
     if (opts.matchCase) flags |= FR_MATCHCASE;
     if (opts.wholeWord) flags |= FR_WHOLEWORD;
-    if (opts.forward)   flags |= FR_DOWN;
 
     int found = static_cast<int>(
         SendMessageW(m_hwnd, EM_FINDTEXTEXW, flags, reinterpret_cast<LPARAM>(&ft)));

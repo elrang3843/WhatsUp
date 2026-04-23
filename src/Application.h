@@ -48,6 +48,7 @@ private:
 
     HINSTANCE   m_hInst    = nullptr;
     HWND        m_hMainWnd = nullptr;
+    HACCEL      m_hAccel   = nullptr;
     int         m_nCmdShow = SW_SHOWNORMAL;
     AppSettings m_settings;
 
