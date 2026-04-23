@@ -1,0 +1,279 @@
+// WhatsUp.rc — Windows Resource Script
+// Encoding: UTF-8 (compile with /utf-8 or rc /n)
+#pragma code_page(65001)
+
+#include "resource.h"
+#include <windows.h>
+#include <commctrl.h>
+
+// Application manifest (visual styles + DPI awareness)
+// Path is relative to resources/ dir added via /I flag in CMakeLists.txt
+1 RT_MANIFEST "manifest.xml"
+
+// Version information
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+FILEFLAGS      0
+FILEOS         VOS_NT_WINDOWS32
+FILETYPE       VFT_APP
+FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName",      "WhatsUp Contributors"
+            VALUE "FileDescription",  "WhatsUp Open Source Text Editor"
+            VALUE "FileVersion",      "1.0.0.0"
+            VALUE "InternalName",     "WhatsUp"
+            VALUE "LegalCopyright",   "Copyright (C) 2025 WhatsUp Contributors. Apache-2.0 License."
+            VALUE "OriginalFilename", "WhatsUp.exe"
+            VALUE "ProductName",      "WhatsUp"
+            VALUE "ProductVersion",   "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04b0
+    END
+END
+
+// String table
+STRINGTABLE
+BEGIN
+    IDS_APP_TITLE   "WhatsUp"
+    IDS_VERSION     "1.0.0"
+END
+
+// ============================================================
+// About Dialog
+// ============================================================
+IDD_ABOUT DIALOGEX 0, 0, 320, 180
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "WhatsUp 정보"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    ICON            IDI_APPICON,        IDC_ABOUT_LOGO,    10,  10,  32, 32
+    LTEXT           "WhatsUp",          -1,                52,  12, 200, 16
+    LTEXT           "",                 IDC_ABOUT_VERSION, 52,  28, 200, 10
+    LTEXT           "",                 IDC_ABOUT_COPYRIGHT, 52, 42, 250, 10
+    LTEXT           "Licensed under the Apache License, Version 2.0", -1, 10, 68, 300, 10
+    LTEXT           "https://github.com/elrang3843/whatsup", IDC_ABOUT_URL, 10, 82, 300, 10
+    LTEXT           "오픈소스 문서 편집기 — 저사양 PC에서도 자유롭게 사용하세요.", -1, 10, 100, 300, 20
+    DEFPUSHBUTTON   "확인", IDOK,       130, 150,  60, 18
+END
+
+// ============================================================
+// Settings Dialog
+// ============================================================
+IDD_SETTINGS DIALOGEX 0, 0, 360, 240
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "설정"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    CONTROL         "", IDC_SETTINGS_TABS, "SysTabControl32", TCS_TABS | WS_CHILD | WS_VISIBLE, 6, 6, 348, 200
+
+    // Tab 0: Language
+    LTEXT           "언어 (Language):", -1,         16, 36, 80, 10
+    COMBOBOX        IDC_LANG_COMBO,                 100, 34, 120, 80,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+
+    // Tab 0: Theme
+    LTEXT           "테마 (Theme):",    -1,         16, 56, 80, 10
+    COMBOBOX        IDC_THEME_COMBO,                100, 54, 120, 80,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+
+    // Tab 1: User
+    LTEXT           "이름 (Name):",     -1,         16, 76, 80, 10
+    EDITTEXT        IDC_USER_NAME,                  100, 74, 160, 14, ES_AUTOHSCROLL
+    LTEXT           "조직 (Org):",      -1,         16, 96, 80, 10
+    EDITTEXT        IDC_USER_ORG,                   100, 94, 160, 14, ES_AUTOHSCROLL
+
+    // Tab 2: Spell
+    AUTOCHECKBOX    "맞춤법 검사 사용", IDC_SPELL_ENABLE,   16, 116, 140, 12
+    LTEXT           "언어:",            -1,         16, 134, 40, 10
+    COMBOBOX        IDC_SPELL_LANG,                 60, 132, 120, 80,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "자동 완성 사용",   IDC_AUTOCOMPLETE_ENABLE, 16, 154, 140, 12
+
+    // Tab 3: Grid
+    AUTOCHECKBOX    "눈금선 표시",      IDC_GRID_SHOW,      16, 176, 100, 12
+    AUTOCHECKBOX    "눈금선에 맞추기",  IDC_GRID_SNAP,      16, 192, 100, 12
+
+    DEFPUSHBUTTON   "확인",  IDOK,     240, 214,  54, 18
+    PUSHBUTTON      "취소",  IDCANCEL, 298, 214,  54, 18
+END
+
+// ============================================================
+// Document Info Dialog
+// ============================================================
+IDD_DOC_INFO DIALOGEX 0, 0, 360, 280
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "문서 정보"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    CONTROL         "", IDC_DOCINFO_TABS, "SysTabControl32", TCS_TABS | WS_CHILD | WS_VISIBLE, 6, 6, 348, 240
+
+    LTEXT           "제목:",     -1,               16, 36,  50, 10
+    EDITTEXT        IDC_DOC_TITLE,                 70, 34, 280, 14, ES_AUTOHSCROLL
+    LTEXT           "작성자:",   -1,               16, 56,  50, 10
+    EDITTEXT        IDC_DOC_AUTHOR,                70, 54, 280, 14, ES_AUTOHSCROLL
+    LTEXT           "주제:",     -1,               16, 76,  50, 10
+    EDITTEXT        IDC_DOC_SUBJECT,               70, 74, 280, 14, ES_AUTOHSCROLL
+    LTEXT           "키워드:",   -1,               16, 96,  50, 10
+    EDITTEXT        IDC_DOC_KEYWORDS,              70, 94, 280, 14, ES_AUTOHSCROLL
+    LTEXT           "설명:",     -1,               16, 116, 50, 10
+    EDITTEXT        IDC_DOC_COMMENT,               70, 114, 280, 40, ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL
+
+    GROUPBOX        "문서 통계", -1,               10, 162, 200, 60
+    LTEXT           "단어 수:",  -1,               20, 176, 60, 10
+    LTEXT           "",          IDC_WORD_COUNT,   90, 176, 60, 10
+    LTEXT           "문자 수:",  -1,               20, 192, 60, 10
+    LTEXT           "",          IDC_CHAR_COUNT,   90, 192, 60, 10
+    LTEXT           "쪽 수:",    -1,               20, 208, 60, 10
+    LTEXT           "",          IDC_PAGE_COUNT,   90, 208, 60, 10
+
+    GROUPBOX        "워터마크",  -1,               220, 162, 134, 60
+    AUTORADIOBUTTON "없음",      IDC_WATERMARK_NONE,   230, 176, 40, 10, WS_GROUP
+    AUTORADIOBUTTON "텍스트",    IDC_WATERMARK_TEXT,   230, 190, 50, 10
+    AUTORADIOBUTTON "이미지",    IDC_WATERMARK_IMAGE,  230, 204, 50, 10
+    EDITTEXT        IDC_WATERMARK_CONTENT,         282, 188, 66, 14, ES_AUTOHSCROLL
+
+    DEFPUSHBUTTON   "확인",  IDOK,     240, 254,  54, 18
+    PUSHBUTTON      "취소",  IDCANCEL, 298, 254,  54, 18
+END
+
+// ============================================================
+// Insert Table Dialog
+// ============================================================
+IDD_INSERT_TABLE DIALOGEX 0, 0, 220, 140
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "표 삽입"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "행 수 (Rows):",  -1,  10, 14,  70, 10
+    EDITTEXT        IDC_TABLE_ROWS,       90, 12,  40, 14, ES_NUMBER | ES_AUTOHSCROLL
+    LTEXT           "열 수 (Cols):",  -1,  10, 34,  70, 10
+    EDITTEXT        IDC_TABLE_COLS,       90, 32,  40, 14, ES_NUMBER | ES_AUTOHSCROLL
+    AUTOCHECKBOX    "자동 너비 맞춤", IDC_TABLE_AUTOFIT, 10, 54, 120, 12
+    AUTOCHECKBOX    "머리글 행 포함", IDC_TABLE_HAS_HEADER, 10, 70, 120, 12
+    LTEXT           "너비 (%):",      -1,  10, 90,  70, 10
+    EDITTEXT        IDC_TABLE_WIDTH_PCT,  90, 88,  40, 14, ES_NUMBER | ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "확인",  IDOK,        80, 114,  60, 18
+    PUSHBUTTON      "취소",  IDCANCEL,   150, 114,  60, 18
+END
+
+// ============================================================
+// Insert Hyperlink Dialog
+// ============================================================
+IDD_INSERT_HYPERLINK DIALOGEX 0, 0, 300, 130
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "하이퍼링크 삽입"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "표시 텍스트:",  -1,            10, 14,  70, 10
+    EDITTEXT        IDC_LINK_DISPLAY,               90, 12, 200, 14, ES_AUTOHSCROLL
+    LTEXT           "URL 주소:",     -1,            10, 34,  70, 10
+    EDITTEXT        IDC_LINK_URL,                   90, 32, 200, 14, ES_AUTOHSCROLL
+    LTEXT           "도구 설명:",    -1,            10, 54,  70, 10
+    EDITTEXT        IDC_LINK_TOOLTIP,               90, 52, 200, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "확인",  IDOK,                 170, 100,  60, 18
+    PUSHBUTTON      "취소",  IDCANCEL,             234, 100,  60, 18
+END
+
+// ============================================================
+// Insert Date/Time Dialog
+// ============================================================
+IDD_INSERT_DATETIME DIALOGEX 0, 0, 280, 180
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "날짜/시간 삽입"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "형식 선택:", -1,               10, 10, 100, 10
+    LISTBOX         IDC_DATETIME_LIST,              10, 24, 260, 110,
+                    LBS_STANDARD | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "미리보기:",  -1,               10, 140, 60,  10
+    LTEXT           "",           IDC_DATETIME_PREVIEW, 80, 140, 190, 10
+    AUTOCHECKBOX    "자동 업데이트", IDC_DATETIME_AUTO, 10, 154, 120, 12
+    DEFPUSHBUTTON   "확인",  IDOK,                 150, 154,  60, 18
+    PUSHBUTTON      "취소",  IDCANCEL,             214, 154,  60, 18
+END
+
+// ============================================================
+// Insert Comment Dialog
+// ============================================================
+IDD_INSERT_COMMENT DIALOGEX 0, 0, 280, 160
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "주석 삽입"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "작성자:",  -1,        10, 14,  60, 10
+    EDITTEXT        IDC_COMMENT_AUTHOR,    80, 12, 190, 14, ES_AUTOHSCROLL
+    LTEXT           "내용:",    -1,        10, 34,  60, 10
+    EDITTEXT        IDC_COMMENT_TEXT,      10, 48, 260, 80,
+                    ES_MULTILINE | ES_AUTOVSCROLL | WS_VSCROLL
+    DEFPUSHBUTTON   "확인",  IDOK,        150, 134,  60, 18
+    PUSHBUTTON      "취소",  IDCANCEL,    214, 134,  60, 18
+END
+
+// ============================================================
+// Page Number Dialog
+// ============================================================
+IDD_PAGE_NUMBER DIALOGEX 0, 0, 240, 150
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "쪽 번호"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "위치:",   -1,         10, 14,  60, 10
+    COMBOBOX        IDC_PAGENUM_POS,        80, 12, 150, 60,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "정렬:",   -1,         10, 34,  60, 10
+    COMBOBOX        IDC_PAGENUM_ALIGN,      80, 32, 150, 60,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "형식:",   -1,         10, 54,  60, 10
+    COMBOBOX        IDC_PAGENUM_FORMAT,     80, 52, 150, 60,
+                    CBS_DROPDOWNLIST | CBS_HASSTRINGS | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "시작 번호:", -1,      10, 74,  70, 10
+    EDITTEXT        IDC_PAGENUM_START,      90, 72,  50, 14, ES_NUMBER | ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "확인",  IDOK,        110, 120,  60, 18
+    PUSHBUTTON      "취소",  IDCANCEL,    174, 120,  60, 18
+END
+
+// ============================================================
+// Columns Dialog
+// ============================================================
+IDD_COLUMNS DIALOGEX 0, 0, 240, 160
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "다단 설정"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "단 수:",         -1,     10, 14,  70, 10
+    EDITTEXT        IDC_COL_COUNT,             90, 12,  40, 14, ES_NUMBER | ES_AUTOHSCROLL
+    AUTOCHECKBOX    "균등 너비",       IDC_COL_EQUAL,  10, 34, 100, 12
+    AUTOCHECKBOX    "구분선 표시",     IDC_COL_SEPARATOR, 10, 50, 100, 12
+    LTEXT           "간격 (mm):",      -1,    10, 70,  70, 10
+    EDITTEXT        IDC_COL_SPACING,           90, 68,  60, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "확인",  IDOK,            110, 130,  60, 18
+    PUSHBUTTON      "취소",  IDCANCEL,        174, 130,  60, 18
+END
+
+// ============================================================
+// Insert Bookmark Dialog
+// ============================================================
+IDD_INSERT_BOOKMARK DIALOGEX 0, 0, 260, 180
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "책갈피"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    LTEXT           "이름:",          -1,        10, 14,  50, 10
+    EDITTEXT        IDC_BOOKMARK_NAME,            70, 12, 180, 14, ES_AUTOHSCROLL
+    LTEXT           "책갈피 목록:",   -1,        10, 34,  90, 10
+    LISTBOX         IDC_BOOKMARK_LIST,            10, 48, 240, 90,
+                    LBS_STANDARD | WS_VSCROLL | WS_TABSTOP
+    PUSHBUTTON      "추가",  IDC_BOOKMARK_ADD,    10, 148, 54, 18
+    PUSHBUTTON      "삭제",  IDC_BOOKMARK_DELETE, 70, 148, 54, 18
+    PUSHBUTTON      "이동",  IDC_BOOKMARK_GOTO,  130, 148, 54, 18
+    PUSHBUTTON      "닫기",  IDCANCEL,           196, 148, 54, 18
+END
