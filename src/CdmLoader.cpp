@@ -336,8 +336,18 @@ struct CdmLoader {
                         ip.start      = s;
                         ip.end        = richPos;
                         ip.resourceId = *v.resourceId;
-                        // width/height are left at 0 here; B6 will translate
-                        // Length → px and populate them.
+                        auto lengthToPx = [](const cdm::Length& L) -> int {
+                            switch (L.unit) {
+                                case cdm::Unit::Px:   return static_cast<int>(L.value);
+                                case cdm::Unit::Pt:   return static_cast<int>(L.value * 96.0 / 72.0);
+                                case cdm::Unit::Inch: return static_cast<int>(L.value * 96.0);
+                                case cdm::Unit::Cm:   return static_cast<int>(L.value * 96.0 / 2.54);
+                                case cdm::Unit::Mm:   return static_cast<int>(L.value * 96.0 / 25.4);
+                                default:              return 0;  // Percent/Em/Rem: no intrinsic base here
+                            }
+                        };
+                        if (v.width)  ip.widthPx  = lengthToPx(*v.width);
+                        if (v.height) ip.heightPx = lengthToPx(*v.height);
                         imagePlacements.push_back(ip);
                     }
                 }
