@@ -4,6 +4,7 @@
 #include <sstream>
 #include <algorithm>
 #include <map>
+#include <set>
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
 
@@ -155,11 +156,16 @@ std::map<std::wstring, std::wstring> DocxFormat::ParseDocRels(const std::wstring
 cdm::Document DocxFormat::ParseDocumentXmlToCdm(
     const std::wstring& xml,
     const std::map<std::wstring, cdm::ListType>& numTypes,
-    const std::map<std::wstring, std::wstring>& rels)
+    const std::map<std::wstring, std::wstring>& rels,
+    const std::map<std::wstring, cdm::Resource>& imgResources)
 {
     cdm::DocumentBuilder b;
     b.SetOriginalFormat(cdm::FileFormat::DOCX);
     b.BeginSection();
+
+    // Track which image resources have been registered on the Document so we
+    // don't duplicate when the same relId is referenced by multiple drawings.
+    std::set<cdm::ResourceId> registeredImgRes;
 
     bool inPPr = false, inRPr = false;
     bool inPara = false, inRun = false;
@@ -404,9 +410,18 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(
             DrawingInfo di = extractDrawing(pos);
             pos = di.newPos;
             const std::string& altText = di.altText;
-            (void)di.relId;  // consumed by B2b
             ++drawingCount;
-            cdm::ResourceId resId = static_cast<cdm::ResourceId>(drawingCount);
+            cdm::ResourceId resId = 0;
+            if (!di.relId.empty()) {
+                auto it = imgResources.find(di.relId);
+                if (it != imgResources.end()) {
+                    resId = it->second.id;
+                    if (registeredImgRes.insert(resId).second)
+                        b.AddResource(it->second);
+                }
+            }
+            if (resId == 0)
+                resId = static_cast<cdm::ResourceId>(drawingCount);
             if (inCell) {
                 cellBuf += L'[';
                 if (!altText.empty()) cellBuf += std::wstring(altText.begin(),altText.end());
@@ -573,8 +588,50 @@ FormatResult DocxFormat::Load(const std::wstring& path, Document& doc) {
     if (zip.HasEntry("word/_rels/document.xml.rels"))
         docRels  = ParseDocRels(zip.ExtractWide("word/_rels/document.xml.rels"));
 
+    // Pre-extract image resources referenced by the document relationships.
+    // Each relId whose target is an image is pulled out of the ZIP once and
+    // assigned a stable, monotonically increasing ResourceId (starting at 1).
+    std::map<std::wstring, cdm::Resource> imgResources;
+    {
+        auto mediaTypeFor = [](const std::wstring& target) -> std::string {
+            auto dot = target.rfind(L'.');
+            if (dot == std::wstring::npos) return "application/octet-stream";
+            std::wstring ext = target.substr(dot + 1);
+            for (auto& c : ext) c = towlower(c);
+            if (ext == L"png")                         return "image/png";
+            if (ext == L"jpg" || ext == L"jpeg")       return "image/jpeg";
+            if (ext == L"gif")                         return "image/gif";
+            if (ext == L"bmp")                         return "image/bmp";
+            if (ext == L"tif" || ext == L"tiff")       return "image/tiff";
+            if (ext == L"webp")                        return "image/webp";
+            if (ext == L"emf")                         return "image/x-emf";
+            if (ext == L"wmf")                         return "image/x-wmf";
+            return "";
+        };
+        cdm::ResourceId nextId = 1;
+        for (const auto& kv : docRels) {
+            const std::wstring& relId  = kv.first;
+            const std::wstring& target = kv.second;
+            std::string mt = mediaTypeFor(target);
+            if (mt.empty()) continue;  // not an image relationship
+
+            // Target is typically "media/image1.png"; zip entry is "word/<target>".
+            std::string entry = "word/";
+            entry.append(target.begin(), target.end());
+            if (!zip.HasEntry(entry)) continue;
+
+            cdm::Resource res;
+            res.id        = nextId++;
+            res.name.assign(target.begin(), target.end());
+            res.mediaType = mt;
+            res.data      = zip.Extract(entry);
+            if (res.data.empty()) continue;
+            imgResources.emplace(relId, std::move(res));
+        }
+    }
+
     std::wstring docXml = zip.ExtractWide("word/document.xml");
-    r.cdmDoc = ParseDocumentXmlToCdm(docXml, numTypes, docRels);
+    r.cdmDoc = ParseDocumentXmlToCdm(docXml, numTypes, docRels, imgResources);
     r.ok     = true;
     return r;
 }

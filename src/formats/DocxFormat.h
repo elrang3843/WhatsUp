@@ -13,11 +13,16 @@ public:
     bool CanWrite() const override { return true; }
 
 private:
-    // Convert word/document.xml to CDM document
+    // Convert word/document.xml to CDM document. `imgResources` maps a
+    // relationship id (rIdN referenced by <a:blip r:embed>) to a fully
+    // populated cdm::Resource (bytes + mediaType); the parser uses this to
+    // emit real ResourceIds on Image nodes and to register resources on the
+    // Document it builds.
     static cdm::Document ParseDocumentXmlToCdm(
         const std::wstring& xml,
         const std::map<std::wstring, cdm::ListType>& numTypes,
-        const std::map<std::wstring, std::wstring>& rels);
+        const std::map<std::wstring, std::wstring>& rels,
+        const std::map<std::wstring, cdm::Resource>& imgResources);
     static std::map<std::wstring, cdm::ListType> ParseNumbering(const std::wstring& xml);
     static std::map<std::wstring, std::wstring>  ParseDocRels(const std::wstring& xml);
     // Build word/document.xml from plain text
