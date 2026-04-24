@@ -4,13 +4,24 @@
 #include <commdlg.h>
 #include <winspool.h>
 #include <imm.h>
+#include <objbase.h>      // IStream (prereq for gdiplus.h)
+#include <gdiplus.h>
 
 #ifndef CFM_UNDERLINECOLOR
 #define CFM_UNDERLINECOLOR 0x00800000
 #endif
 
-Editor::Editor()  = default;
-Editor::~Editor() { Destroy(); }
+Editor::Editor() {
+    Gdiplus::GdiplusStartupInput gsi;
+    Gdiplus::GdiplusStartup(&m_gdiplusToken, &gsi, nullptr);
+}
+Editor::~Editor() {
+    Destroy();
+    if (m_gdiplusToken) {
+        Gdiplus::GdiplusShutdown(m_gdiplusToken);
+        m_gdiplusToken = 0;
+    }
+}
 
 // Write a one-line entry to %TEMP%\whatsup_richedit.log for diagnosis.
 static void RichEditLog(const wchar_t* msg) {

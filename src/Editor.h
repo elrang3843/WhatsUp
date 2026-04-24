@@ -159,8 +159,9 @@ public:
                        int widthPx = 0, int heightPx = 0);
 
 private:
-    HWND    m_hwnd     = nullptr;
-    HMODULE m_hRichEd  = nullptr;
+    HWND       m_hwnd          = nullptr;
+    HMODULE    m_hRichEd       = nullptr;
+    ULONG_PTR  m_gdiplusToken  = 0;   // Editor-owned GDI+ instance for image decode
 
     // RTF stream callbacks
     static DWORD CALLBACK RtfReadCallback(DWORD_PTR cookie, LPBYTE buf, LONG size, LONG* pBytes);
