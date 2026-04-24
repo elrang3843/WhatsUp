@@ -6,6 +6,7 @@
 #include <imm.h>
 #include <objbase.h>      // IStream (prereq for gdiplus.h)
 #include <gdiplus.h>
+#include <olectl.h>       // IPicture, OleCreatePictureIndirect, PICTDESC
 
 #ifndef CFM_UNDERLINECOLOR
 #define CFM_UNDERLINECOLOR 0x00800000
@@ -675,6 +676,30 @@ void Editor::InsertTable(int rows, int cols, bool header, int widthPct) {
     InsertText(tbl.str());
 }
 
+// Wrap a Gdiplus::Bitmap as an OLE IPicture. The resulting IPicture owns
+// the underlying HBITMAP (fOwn=TRUE); caller must Release() when done.
+// Returns nullptr on failure.
+static IPicture* CreatePictureFromBitmap(Gdiplus::Bitmap& bmp) {
+    HBITMAP hbmp = nullptr;
+    if (bmp.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hbmp) != Gdiplus::Ok || !hbmp)
+        return nullptr;
+
+    PICTDESC pd{};
+    pd.cbSizeofstruct = sizeof(pd);
+    pd.picType        = PICTYPE_BITMAP;
+    pd.bmp.hbitmap    = hbmp;
+    pd.bmp.hpal       = nullptr;
+
+    IPicture* pic = nullptr;
+    HRESULT hr = OleCreatePictureIndirect(&pd, IID_IPicture, TRUE,
+                                          reinterpret_cast<void**>(&pic));
+    if (FAILED(hr) || !pic) {
+        DeleteObject(hbmp);
+        return nullptr;
+    }
+    return pic;
+}
+
 bool Editor::InsertImageAt(int start, int end,
                            const std::vector<uint8_t>& imageBytes,
                            int widthPx, int heightPx) {
@@ -702,16 +727,25 @@ bool Editor::InsertImageAt(int start, int end,
 
     stream->Release();  // TRUE above hands ownership of hGlobal to the stream.
 
-    if (ok) {
-        wchar_t buf[128];
-        swprintf_s(buf, L"[WhatsUp] InsertImageAt: decoded %ux%u (bytes=%zu, range=%d..%d, hint=%dx%d)",
-                   intrinsicW, intrinsicH, imageBytes.size(), start, end, widthPx, heightPx);
-        RichEditLog(buf);
-    } else {
+    if (!ok) {
         RichEditLog(L"[WhatsUp] InsertImageAt: GDI+ decode failed");
+        (void)start; (void)end; (void)widthPx; (void)heightPx;
+        return false;
     }
 
-    // B5c will actually insert the picture into the RichEdit control.
-    (void)start; (void)end; (void)widthPx; (void)heightPx;
+    IPicture* picture = CreatePictureFromBitmap(bmp);
+    if (!picture) {
+        RichEditLog(L"[WhatsUp] InsertImageAt: OleCreatePictureIndirect failed");
+        return false;
+    }
+
+    wchar_t buf[160];
+    swprintf_s(buf, L"[WhatsUp] InsertImageAt: IPicture ready %ux%u (bytes=%zu, range=%d..%d, hint=%dx%d)",
+               intrinsicW, intrinsicH, imageBytes.size(), start, end, widthPx, heightPx);
+    RichEditLog(buf);
+
+    // B5c-2/B5c-3 will attach the IPicture to an IOleClientSite and insert
+    // it into the RichEdit control via IRichEditOle::InsertObject.
+    picture->Release();
     return false;
 }
