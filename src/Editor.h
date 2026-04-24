@@ -149,6 +149,15 @@ public:
     void InsertHyperlink(const std::wstring& displayText, const std::wstring& url);
     void InsertTable(int rows, int cols, bool header, int widthPct);
 
+    // Replace the character range [start, end) with an embedded picture
+    // loaded from `imageBytes`. `widthPx` / `heightPx` are display hints in
+    // device pixels; 0 means "use the image's intrinsic size". Returns true
+    // on success; on failure the existing range is left untouched so callers
+    // can keep any placeholder they emitted.
+    bool InsertImageAt(int start, int end,
+                       const std::vector<uint8_t>& imageBytes,
+                       int widthPx = 0, int heightPx = 0);
+
 private:
     HWND    m_hwnd     = nullptr;
     HMODULE m_hRichEd  = nullptr;

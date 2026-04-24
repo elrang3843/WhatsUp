@@ -663,3 +663,13 @@ void Editor::InsertTable(int rows, int cols, bool header, int widthPct) {
     (void)widthPct;
     InsertText(tbl.str());
 }
+
+bool Editor::InsertImageAt(int start, int end,
+                           const std::vector<uint8_t>& imageBytes,
+                           int widthPx, int heightPx) {
+    // Scaffolded stub. Real implementation (GDI+ decode + IRichEditOle::
+    // InsertObject) lands in a follow-up step. Returning false signals the
+    // caller to keep any placeholder it already emitted.
+    (void)start; (void)end; (void)imageBytes; (void)widthPx; (void)heightPx;
+    return false;
+}
