@@ -108,8 +108,8 @@ bool CanWrite() const;
 | HtmlFormat | CDM | full HTML | Skips `<head>`,`<nav>`,`<footer>`,`<aside>` |
 | DocxFormat | CDM | ZIP+XML | ZIP via ZipReader; word/document.xml parsing |
 | HwpxFormat | CDM | ZIP+XML | ISO/IEC 26300-3 |
-| HwpFormat | CDM | ❌ | OLE2 binary; text extraction only |
-| DocFormat | CDM | ❌ | OLE2 binary; text extraction only |
+| HwpFormat | CDM | ❌ | OLE2 binary; **read-only by policy** (licensing — do not implement Save). Saving is blocked in `FormatManager::Save` and the user is asked to pick another format (HWPX/DOCX/HTML/TXT). |
+| DocFormat | CDM | ❌ | OLE2 binary; **read-only by policy** (licensing — do not implement Save). Saving is blocked in `FormatManager::Save` and the user is asked to pick another format (DOCX/HTML/TXT). |
 
 ### Editor (`src/Editor.h/.cpp`)
 
