@@ -6,7 +6,9 @@
 #include <imm.h>
 #include <objbase.h>      // IStream (prereq for gdiplus.h)
 #include <gdiplus.h>
+#include <ole2.h>         // OleSetContainedObject, IStorage, CreateILockBytes…
 #include <olectl.h>       // IPicture, OleCreatePictureIndirect, PICTDESC
+#include <richole.h>      // IRichEditOle, REOBJECT
 
 #ifndef CFM_UNDERLINECOLOR
 #define CFM_UNDERLINECOLOR 0x00800000
@@ -777,9 +779,80 @@ bool Editor::InsertImageAt(int start, int end,
     }
     RichEditLog(L"[WhatsUp] InsertImageAt: IRichEditOle + IOleClientSite acquired");
 
-    // B5c-3 will construct the IStorage + REOBJECT and call reole->InsertObject.
+    // IPicture implements IOleObject directly; query for it so we can hand
+    // the same object to InsertObject. No separate static-copy step needed.
+    IOleObject* oleobj = nullptr;
+    if (FAILED(picture->QueryInterface(IID_IOleObject,
+                                       reinterpret_cast<void**>(&oleobj))) || !oleobj) {
+        RichEditLog(L"[WhatsUp] InsertImageAt: IPicture->IOleObject QI failed");
+        site->Release(); reole->Release(); picture->Release();
+        return false;
+    }
+
+    // Memory-backed storage — InsertObject requires an IStorage even when the
+    // object doesn't persist state.
+    ILockBytes* lockBytes = nullptr;
+    IStorage*   storage   = nullptr;
+    HRESULT hrLb = CreateILockBytesOnHGlobal(nullptr, TRUE, &lockBytes);
+    if (SUCCEEDED(hrLb) && lockBytes) {
+        HRESULT hrStg = StgCreateDocfileOnILockBytes(
+            lockBytes,
+            STGM_SHARE_EXCLUSIVE | STGM_CREATE | STGM_READWRITE,
+            0, &storage);
+        (void)hrStg;
+    }
+    if (!storage) {
+        RichEditLog(L"[WhatsUp] InsertImageAt: IStorage creation failed");
+        if (lockBytes) lockBytes->Release();
+        oleobj->Release();
+        site->Release(); reole->Release(); picture->Release();
+        return false;
+    }
+
+    oleobj->SetClientSite(site);
+    OleSetContainedObject(oleobj, TRUE);
+
+    // Query the picture for its intrinsic HIMETRIC size and apply any caller
+    // override. 1 HIMETRIC = 0.01 mm; at 96 DPI, 1 px ≈ 26.458 HIMETRIC.
+    OLE_XSIZE_HIMETRIC himW = 0; OLE_YSIZE_HIMETRIC himH = 0;
+    picture->get_Width(&himW);
+    picture->get_Height(&himH);
+    auto pxToHimetric = [](int px) -> long {
+        return static_cast<long>(px * 2540.0 / 96.0);
+    };
+    SIZEL sz{ himW, himH };
+    if (widthPx  > 0) sz.cx = pxToHimetric(widthPx);
+    if (heightPx > 0) sz.cy = pxToHimetric(heightPx);
+
+    REOBJECT reobj{};
+    reobj.cbStruct = sizeof(reobj);
+    reobj.cp       = REO_CP_SELECTION;
+    reobj.clsid    = CLSID_NULL;
+    reobj.poleobj  = oleobj;
+    reobj.pstg     = storage;
+    reobj.polesite = site;
+    reobj.sizel    = sz;
+    reobj.dvaspect = DVASPECT_CONTENT;
+    reobj.dwFlags  = REO_BELOWBASELINE;
+    reobj.dwUser   = 0;
+
+    // Replace the placeholder range with the OLE object.
+    SetSel(start, end);
+    HRESULT hrIns = reole->InsertObject(&reobj);
+
+    storage->Release();
+    if (lockBytes) lockBytes->Release();
+    oleobj->Release();
     site->Release();
     reole->Release();
     picture->Release();
-    return false;
+
+    if (FAILED(hrIns)) {
+        wchar_t err[96];
+        swprintf_s(err, L"[WhatsUp] InsertImageAt: InsertObject failed hr=0x%08lX", (unsigned long)hrIns);
+        RichEditLog(err);
+        return false;
+    }
+    RichEditLog(L"[WhatsUp] InsertImageAt: InsertObject OK");
+    return true;
 }
