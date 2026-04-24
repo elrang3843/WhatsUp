@@ -16,7 +16,7 @@ cmake -B build -G "MinGW Makefiles"
 cmake --build build
 ```
 
-First build auto-fetches **zlib** via CMake FetchContent (internet required). All `*.cpp` files under `src/` are picked up by `GLOB_RECURSE` — no CMakeLists.txt edit needed when adding new source files.
+First build auto-fetches **zlib** via CMake FetchContent (internet required). All `*.cpp` files under `src/` are picked up by `GLOB_RECURSE` — no CMakeLists.txt edit needed when adding new source files. Output binary: `build/WhatsUp.exe` (MinGW) or `build/Release/WhatsUp.exe` (MSVC).
 
 There are no automated tests. Verification is done by building and running on Windows.
 
@@ -75,7 +75,11 @@ cdm::Document doc = b.MoveBuild();
 
 All stages recurse into container blocks: `BlockQuote`, `ListBlock` items, `Table` cells, `CustomBlock`.
 
-### Rendering: `CdmLoader` (`src/CdmLoader.h/.cpp`)
+### Rendering: `CdmLoader` (`src/CdmLoader.h/.cpp`) — the active renderer
+
+> Note: `src/cdm/CdmRenderer.hpp/.cpp` is an **alternative** RTF-string renderer (`cdm::Document` → RTF for `EM_STREAMIN`). It is not wired into `MainWindow` today — the live path is `CdmLoader` calling the RichEdit API directly. Don't confuse the two when editing styles.
+
+
 
 Walks the CDM tree, builds a flat `std::wstring` (with `\r\n` = 1 RichEdit position), and collects `CharRun`/`ParaRun` annotations. Then:
 1. `editor->SetText(text)` — set plain text
@@ -125,10 +129,23 @@ m_editor->SetBackground(bgColor);
 
 `ApplyTheme()` uses `SCF_ALL` which **overwrites all per-character formatting** — never call it after `LoadCdmDocument`.
 
+### Other subsystems (outside the CDM pipeline)
+
+Not every file is part of the load/render path. These are independent subsystems rooted in `MainWindow`:
+
+- `src/Application.h/.cpp` — app singleton, settings persistence, theme state.
+- `src/SplashScreen.h/.cpp` — GDI-drawn startup splash; does not use RichEdit.
+- `src/i18n/Localization.h/.cpp` — Korean / English string tables; all user-facing strings go through this.
+- `src/spell/SpellChecker.h/.cpp` — wraps Windows 8+ `ISpellCheckerFactory`. Degrades gracefully when unavailable.
+- `src/autocomplete/AutoComplete.h/.cpp` — popup word completion fed by document word frequency.
+- `src/dialogs/` — modal dialogs (Settings, DocInfo, About, InsertTable, InsertHyperlink, InsertDateTime). New dialogs follow the same `DialogProc` + resource-ID pattern; resource IDs live in `src/resource.h`, resources in `src/WhatsUp.rc`.
+
+When adding a menu item, touch four things together: `WhatsUp.rc` (menu entry + accelerator), `resource.h` (command ID), `MainWindow::OnCommand` (handler), and `Localization` (label text).
+
 ## Development branch
 
-Active development branch is `claude/init-project-setup-mB09Z`. Push with:
+Active development branch is `claude/init-project-OVSx8`. Push with:
 ```bash
-git push -u origin claude/init-project-setup-mB09Z
+git push -u origin claude/init-project-OVSx8
 ```
-(Earlier work landed on `claude/whats-up-text-editor-OwYMn`; check `git log` to confirm the current branch before pushing.)
+(Earlier work landed on `claude/init-project-setup-mB09Z` and `claude/whats-up-text-editor-OwYMn`; run `git branch --show-current` before pushing.)
