@@ -1,6 +1,7 @@
 #include "Editor.h"
 #include <sstream>
 #include <algorithm>
+#include <new>
 #include <commdlg.h>
 #include <winspool.h>
 #include <imm.h>
@@ -699,9 +700,169 @@ static IOleClientSite* QueryOleClientSite(IRichEditOle* reole) {
     return site;
 }
 
+// ---------------------------------------------------------------------------
+// BitmapDataObject — a tiny IDataObject that exposes a single HBITMAP as
+// CF_DIB. Required because IPicture does not implement IOleObject; the
+// RichEdit insertion path (B8) turns this data object into an IOleObject
+// via OleCreateStaticFromData.
+//
+// Ownership: the object takes the HBITMAP passed to the constructor and
+// DeleteObject()s it from the destructor. Callers must not release the
+// HBITMAP themselves after constructing.
+// ---------------------------------------------------------------------------
+
+class BitmapEnumFormatEtc : public IEnumFORMATETC {
+    LONG  m_ref   = 1;
+    ULONG m_index = 0;
+    static constexpr ULONG kCount = 1;
+    FORMATETC m_fmt[kCount];
+public:
+    BitmapEnumFormatEtc() {
+        m_fmt[0] = FORMATETC{ CF_DIB, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    }
+    // IUnknown
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IEnumFORMATETC) {
+            *ppv = static_cast<IEnumFORMATETC*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef()  override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        LONG r = InterlockedDecrement(&m_ref);
+        if (r == 0) delete this;
+        return r;
+    }
+    // IEnumFORMATETC
+    HRESULT STDMETHODCALLTYPE Next(ULONG celt, FORMATETC* rgelt, ULONG* pceltFetched) override {
+        if (!rgelt) return E_POINTER;
+        ULONG copied = 0;
+        while (copied < celt && m_index < kCount) {
+            rgelt[copied] = m_fmt[m_index];
+            ++copied; ++m_index;
+        }
+        if (pceltFetched) *pceltFetched = copied;
+        return (copied == celt) ? S_OK : S_FALSE;
+    }
+    HRESULT STDMETHODCALLTYPE Skip(ULONG celt) override {
+        if (m_index + celt > kCount) { m_index = kCount; return S_FALSE; }
+        m_index += celt;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Reset() override { m_index = 0; return S_OK; }
+    HRESULT STDMETHODCALLTYPE Clone(IEnumFORMATETC** ppenum) override {
+        if (!ppenum) return E_POINTER;
+        auto* clone = new (std::nothrow) BitmapEnumFormatEtc();
+        if (!clone) return E_OUTOFMEMORY;
+        clone->m_index = m_index;
+        *ppenum = clone;
+        return S_OK;
+    }
+};
+
+class BitmapDataObject : public IDataObject {
+    LONG    m_ref  = 1;
+    HBITMAP m_hbmp = nullptr;
+public:
+    explicit BitmapDataObject(HBITMAP h) : m_hbmp(h) {}
+    ~BitmapDataObject() { if (m_hbmp) DeleteObject(m_hbmp); }
+
+    // IUnknown
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == IID_IUnknown || riid == IID_IDataObject) {
+            *ppv = static_cast<IDataObject*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef()  override { return InterlockedIncrement(&m_ref); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        LONG r = InterlockedDecrement(&m_ref);
+        if (r == 0) delete this;
+        return r;
+    }
+    // IDataObject
+    HRESULT STDMETHODCALLTYPE GetData(FORMATETC* pfmt, STGMEDIUM* pmed) override {
+        if (!pfmt || !pmed) return DV_E_FORMATETC;
+        if (pfmt->cfFormat != CF_DIB || !(pfmt->tymed & TYMED_HGLOBAL))
+            return DV_E_FORMATETC;
+        if (!m_hbmp) return E_UNEXPECTED;
+
+        BITMAP bm{};
+        if (!GetObject(m_hbmp, sizeof(bm), &bm))
+            return E_UNEXPECTED;
+
+        BITMAPINFOHEADER bih{};
+        bih.biSize        = sizeof(bih);
+        bih.biWidth       = bm.bmWidth;
+        bih.biHeight      = bm.bmHeight;      // positive = bottom-up
+        bih.biPlanes      = 1;
+        bih.biBitCount    = 32;
+        bih.biCompression = BI_RGB;
+
+        const int stride    = ((bm.bmWidth * 32 + 31) / 32) * 4;
+        const int imageSize = stride * bm.bmHeight;
+        const SIZE_T total  = sizeof(BITMAPINFOHEADER) + imageSize;
+
+        HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, total);
+        if (!hg) return E_OUTOFMEMORY;
+
+        void* p = GlobalLock(hg);
+        if (!p) { GlobalFree(hg); return E_OUTOFMEMORY; }
+        memcpy(p, &bih, sizeof(bih));
+
+        HDC hdc   = GetDC(nullptr);
+        int lines = GetDIBits(hdc, m_hbmp, 0, bm.bmHeight,
+                              reinterpret_cast<BYTE*>(p) + sizeof(BITMAPINFOHEADER),
+                              reinterpret_cast<BITMAPINFO*>(p), DIB_RGB_COLORS);
+        ReleaseDC(nullptr, hdc);
+        GlobalUnlock(hg);
+
+        if (lines == 0) { GlobalFree(hg); return E_FAIL; }
+
+        pmed->tymed          = TYMED_HGLOBAL;
+        pmed->hGlobal        = hg;
+        pmed->pUnkForRelease = nullptr;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetDataHere(FORMATETC*, STGMEDIUM*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE QueryGetData(FORMATETC* pfmt) override {
+        if (!pfmt) return E_POINTER;
+        return (pfmt->cfFormat == CF_DIB && (pfmt->tymed & TYMED_HGLOBAL)) ? S_OK : S_FALSE;
+    }
+    HRESULT STDMETHODCALLTYPE GetCanonicalFormatEtc(FORMATETC*, FORMATETC* pfmtOut) override {
+        if (pfmtOut) pfmtOut->ptd = nullptr;
+        return E_NOTIMPL;
+    }
+    HRESULT STDMETHODCALLTYPE SetData(FORMATETC*, STGMEDIUM*, BOOL) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE EnumFormatEtc(DWORD dir, IEnumFORMATETC** ppenum) override {
+        if (!ppenum) return E_POINTER;
+        if (dir != DATADIR_GET) { *ppenum = nullptr; return E_NOTIMPL; }
+        *ppenum = new (std::nothrow) BitmapEnumFormatEtc();
+        return *ppenum ? S_OK : E_OUTOFMEMORY;
+    }
+    HRESULT STDMETHODCALLTYPE DAdvise(FORMATETC*, DWORD, IAdviseSink*, DWORD*) override {
+        return OLE_E_ADVISENOTSUPPORTED;
+    }
+    HRESULT STDMETHODCALLTYPE DUnadvise(DWORD) override { return OLE_E_ADVISENOTSUPPORTED; }
+    HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA**) override { return OLE_E_ADVISENOTSUPPORTED; }
+};
+
 // Wrap a Gdiplus::Bitmap as an OLE IPicture. The resulting IPicture owns
 // the underlying HBITMAP (fOwn=TRUE); caller must Release() when done.
 // Returns nullptr on failure.
+//
+// NOTE: Kept for reference; no longer used for RichEdit insertion. IPicture
+// does not implement IOleObject, so InsertObject via IPicture fails at the
+// QueryInterface step. The active path (B8+) uses BitmapDataObject above
+// plus OleCreateStaticFromData instead.
 static IPicture* CreatePictureFromBitmap(Gdiplus::Bitmap& bmp) {
     HBITMAP hbmp = nullptr;
     if (bmp.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hbmp) != Gdiplus::Ok || !hbmp)
