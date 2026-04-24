@@ -18,16 +18,25 @@ struct ParaRun {
     ParaFormat fmt;
 };
 
+struct ImagePlacement {
+    int             start, end;       // placeholder range in RichEdit positions
+    cdm::ResourceId resourceId = 0;
+    int             widthPx = 0;
+    int             heightPx = 0;
+};
+
 // ---- builder ------------------------------------------------------------------
 
 struct CdmLoader {
-    Editor*          editor;
-    std::wstring     text;
-    int              richPos    = 0;   // mirrors RichEdit internal position (\r\n = 1)
-    int              indentTwips = 0;  // accumulated blockquote indent
+    Editor*              editor;
+    const cdm::Document* doc = nullptr;
+    std::wstring         text;
+    int                  richPos    = 0;   // mirrors RichEdit internal position (\r\n = 1)
+    int                  indentTwips = 0;  // accumulated blockquote indent
 
-    std::vector<CharRun> charRuns;
-    std::vector<ParaRun> paraRuns;
+    std::vector<CharRun>        charRuns;
+    std::vector<ParaRun>        paraRuns;
+    std::vector<ImagePlacement> imagePlacements;
 
     // --- text append helpers --------------------------------------------------
 
@@ -322,6 +331,15 @@ struct CdmLoader {
                     cr.fmt.italic    = 1;
                     cr.fmt.textColor = RGB(0x80, 0x80, 0x80);
                     charRuns.push_back(cr);
+                    if (v.resourceId) {
+                        ImagePlacement ip{};
+                        ip.start      = s;
+                        ip.end        = richPos;
+                        ip.resourceId = *v.resourceId;
+                        // width/height are left at 0 here; B6 will translate
+                        // Length → px and populate them.
+                        imagePlacements.push_back(ip);
+                    }
                 }
             }
             else if constexpr (std::is_same_v<T, cdm::NoteRef>) {
@@ -433,7 +451,20 @@ struct CdmLoader {
             editor->ApplyCharFormat(cr.fmt, true);
         }
 
-        // 5. Deselect and move caret to top.
+        // 5. Replace image placeholders with embedded pictures. Iterate in
+        //    reverse so replacing an earlier range doesn't shift positions
+        //    of later placeholders. On failure (stub / decode error) the
+        //    placeholder text is left in place.
+        if (doc) {
+            for (auto it = imagePlacements.rbegin(); it != imagePlacements.rend(); ++it) {
+                const cdm::Resource* res = cdm::FindResource(*doc, it->resourceId);
+                if (!res || res->data.empty()) continue;
+                editor->InsertImageAt(it->start, it->end, res->data,
+                                      it->widthPx, it->heightPx);
+            }
+        }
+
+        // 6. Deselect and move caret to top.
         editor->SetSel(0, 0);
     }
 };
@@ -443,6 +474,7 @@ struct CdmLoader {
 void LoadCdmDocument(const cdm::Document& doc, Editor* editor, COLORREF textColor) {
     CdmLoader loader;
     loader.editor = editor;
+    loader.doc    = &doc;
     loader.ProcessDocument(doc);
     loader.Apply(textColor);
 }
