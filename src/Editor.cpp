@@ -692,14 +692,6 @@ static IRichEditOle* QueryRichEditOle(HWND hwnd) {
     return reole;
 }
 
-// Pull an IOleClientSite out of the given IRichEditOle. Caller Release()s.
-static IOleClientSite* QueryOleClientSite(IRichEditOle* reole) {
-    if (!reole) return nullptr;
-    IOleClientSite* site = nullptr;
-    if (FAILED(reole->GetClientSite(&site)) || !site) return nullptr;
-    return site;
-}
-
 // ---------------------------------------------------------------------------
 // BitmapDataObject — a tiny IDataObject that exposes a single HBITMAP as
 // CF_DIB. Required because IPicture does not implement IOleObject; the
@@ -901,108 +893,46 @@ bool Editor::InsertImageAt(int start, int end,
                intrinsicW, intrinsicH, imageBytes.size(), start, end, widthPx, heightPx);
     RichEditLog(buf);
 
-    IRichEditOle*   reole = QueryRichEditOle(m_hwnd);
-    IOleClientSite* site  = QueryOleClientSite(reole);
-    if (!reole || !site) {
-        RichEditLog(reole ? L"[WhatsUp] InsertImageAt: GetClientSite failed"
-                          : L"[WhatsUp] InsertImageAt: EM_GETOLEINTERFACE failed");
-        if (site)  site->Release();
-        if (reole) reole->Release();
+    IRichEditOle* reole = QueryRichEditOle(m_hwnd);
+    if (!reole) {
+        RichEditLog(L"[WhatsUp] InsertImageAt: EM_GETOLEINTERFACE failed");
         DeleteObject(hbmp);
         return false;
     }
-    RichEditLog(L"[WhatsUp] InsertImageAt: IRichEditOle + IOleClientSite acquired");
+    RichEditLog(L"[WhatsUp] InsertImageAt: IRichEditOle acquired");
 
-    // Memory-backed storage — InsertObject requires an IStorage even when
-    // the object doesn't persist state.
-    ILockBytes* lockBytes = nullptr;
-    IStorage*   storage   = nullptr;
-    HRESULT hrLb = CreateILockBytesOnHGlobal(nullptr, TRUE, &lockBytes);
-    if (SUCCEEDED(hrLb) && lockBytes) {
-        HRESULT hrStg = StgCreateDocfileOnILockBytes(
-            lockBytes,
-            STGM_SHARE_EXCLUSIVE | STGM_CREATE | STGM_READWRITE,
-            0, &storage);
-        (void)hrStg;
-    }
-    if (!storage) {
-        RichEditLog(L"[WhatsUp] InsertImageAt: IStorage creation failed");
-        if (lockBytes) lockBytes->Release();
-        site->Release(); reole->Release();
-        DeleteObject(hbmp);
-        return false;
-    }
-
-    // Hand the HBITMAP to a BitmapDataObject (it now owns the HBITMAP), then
-    // turn that data object into a static IOleObject suitable for InsertObject.
+    // BitmapDataObject takes ownership of the HBITMAP.
     auto* dataObj = new (std::nothrow) BitmapDataObject(hbmp);
     if (!dataObj) {
         RichEditLog(L"[WhatsUp] InsertImageAt: BitmapDataObject alloc failed");
-        storage->Release();
-        if (lockBytes) lockBytes->Release();
-        site->Release(); reole->Release();
+        reole->Release();
         DeleteObject(hbmp);
         return false;
     }
 
-    FORMATETC fmt{ CF_DIB, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
-    IOleObject* oleobj = nullptr;
-    HRESULT hrOle = OleCreateStaticFromData(
-        dataObj, IID_IOleObject, OLERENDER_DRAW, &fmt,
-        site, storage, reinterpret_cast<void**>(&oleobj));
-    dataObj->Release();  // OleCreateStaticFromData took its own reference.
-
-    if (FAILED(hrOle) || !oleobj) {
-        wchar_t err[96];
-        swprintf_s(err, L"[WhatsUp] InsertImageAt: OleCreateStaticFromData failed hr=0x%08lX",
-                   (unsigned long)hrOle);
-        RichEditLog(err);
-        storage->Release();
-        if (lockBytes) lockBytes->Release();
-        site->Release(); reole->Release();
-        return false;
-    }
-
-    OleSetContainedObject(oleobj, TRUE);
-
-    // Size: start with intrinsic (GDI+ width/height) and apply any caller
-    // override. 1 HIMETRIC = 0.01 mm; at 96 DPI, 1 px ≈ 26.458 HIMETRIC.
-    auto pxToHimetric = [](int px) -> long {
-        return static_cast<long>(px * 2540.0 / 96.0);
-    };
-    SIZEL sz{ pxToHimetric(static_cast<int>(intrinsicW)),
-              pxToHimetric(static_cast<int>(intrinsicH)) };
-    if (widthPx  > 0) sz.cx = pxToHimetric(widthPx);
-    if (heightPx > 0) sz.cy = pxToHimetric(heightPx);
-
-    REOBJECT reobj{};
-    reobj.cbStruct = sizeof(reobj);
-    reobj.cp       = REO_CP_SELECTION;
-    reobj.clsid    = CLSID_NULL;
-    reobj.poleobj  = oleobj;
-    reobj.pstg     = storage;
-    reobj.polesite = site;
-    reobj.sizel    = sz;
-    reobj.dvaspect = DVASPECT_CONTENT;
-    reobj.dwFlags  = REO_BELOWBASELINE;
-    reobj.dwUser   = 0;
-
-    // Replace the placeholder range with the OLE object.
-    SetSel(start, end);
-    HRESULT hrIns = reole->InsertObject(&reobj);
-
-    oleobj->Release();
-    storage->Release();
-    if (lockBytes) lockBytes->Release();
-    site->Release();
+    // ImportDataObject is the RichEdit-native path: it wraps the given
+    // IDataObject in a static OLE object and inserts it at the current
+    // selection. Avoids the DV_E_CLIPFORMAT rejection that OleCreate
+    // StaticFromData produced with the same data object.
+    SetSel(start, end);  // replaces the placeholder range
+    HRESULT hr = reole->ImportDataObject(dataObj, CF_DIB, nullptr);
+    dataObj->Release();
     reole->Release();
 
-    if (FAILED(hrIns)) {
+    if (FAILED(hr)) {
         wchar_t err[96];
-        swprintf_s(err, L"[WhatsUp] InsertImageAt: InsertObject failed hr=0x%08lX", (unsigned long)hrIns);
+        swprintf_s(err, L"[WhatsUp] InsertImageAt: ImportDataObject failed hr=0x%08lX",
+                   (unsigned long)hr);
         RichEditLog(err);
         return false;
     }
-    RichEditLog(L"[WhatsUp] InsertImageAt: InsertObject OK");
+
+    // Size override (widthPx/heightPx) is unimplemented in this path —
+    // ImportDataObject sizes to the DIB's intrinsic dimensions. Follow-up
+    // can fetch the inserted REOBJECT via IRichEditOle::GetObject and
+    // call IOleObject::SetExtent.
+    (void)widthPx; (void)heightPx;
+
+    RichEditLog(L"[WhatsUp] InsertImageAt: ImportDataObject OK");
     return true;
 }
