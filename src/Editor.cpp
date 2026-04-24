@@ -678,9 +678,40 @@ void Editor::InsertTable(int rows, int cols, bool header, int widthPct) {
 bool Editor::InsertImageAt(int start, int end,
                            const std::vector<uint8_t>& imageBytes,
                            int widthPx, int heightPx) {
-    // Scaffolded stub. Real implementation (GDI+ decode + IRichEditOle::
-    // InsertObject) lands in a follow-up step. Returning false signals the
-    // caller to keep any placeholder it already emitted.
-    (void)start; (void)end; (void)imageBytes; (void)widthPx; (void)heightPx;
+    if (!m_hwnd || imageBytes.empty()) return false;
+
+    // Decode the bytes through GDI+ to validate the image and to learn its
+    // intrinsic size. B5c will feed the resulting pixels to RichEdit.
+    HGLOBAL hGlobal = GlobalAlloc(GMEM_MOVEABLE, imageBytes.size());
+    if (!hGlobal) return false;
+    void* p = GlobalLock(hGlobal);
+    if (!p) { GlobalFree(hGlobal); return false; }
+    memcpy(p, imageBytes.data(), imageBytes.size());
+    GlobalUnlock(hGlobal);
+
+    IStream* stream = nullptr;
+    if (CreateStreamOnHGlobal(hGlobal, TRUE, &stream) != S_OK) {
+        GlobalFree(hGlobal);
+        return false;
+    }
+
+    Gdiplus::Bitmap bmp(stream);
+    bool ok = (bmp.GetLastStatus() == Gdiplus::Ok);
+    UINT intrinsicW = ok ? bmp.GetWidth()  : 0;
+    UINT intrinsicH = ok ? bmp.GetHeight() : 0;
+
+    stream->Release();  // TRUE above hands ownership of hGlobal to the stream.
+
+    if (ok) {
+        wchar_t buf[128];
+        swprintf_s(buf, L"[WhatsUp] InsertImageAt: decoded %ux%u (bytes=%zu, range=%d..%d, hint=%dx%d)",
+                   intrinsicW, intrinsicH, imageBytes.size(), start, end, widthPx, heightPx);
+        RichEditLog(buf);
+    } else {
+        RichEditLog(L"[WhatsUp] InsertImageAt: GDI+ decode failed");
+    }
+
+    // B5c will actually insert the picture into the RichEdit control.
+    (void)start; (void)end; (void)widthPx; (void)heightPx;
     return false;
 }
