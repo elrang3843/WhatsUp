@@ -358,6 +358,18 @@ struct CdmLoader {
                     charRuns.push_back(cr);
                 }
             }
+            else if constexpr (std::is_same_v<T, cdm::CommentRangeStart> ||
+                               std::is_same_v<T, cdm::CommentRangeEnd>) {
+                // Comments are handled by a dedicated UI (comment pane), not
+                // rendered inline. Explicit branch prevents future silent drops.
+                (void)v;
+            }
+            else if constexpr (std::is_same_v<T, cdm::RawInline>) {
+                // Raw fragments may contain arbitrary markup bytes; dumping
+                // them into the editor would produce garbage. Strip for now.
+                // (data is preserved in the CDM for round-trip save.)
+                (void)v;
+            }
         }, inl.value);
     }
 
