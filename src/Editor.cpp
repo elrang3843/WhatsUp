@@ -855,35 +855,6 @@ public:
     HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA**) override { return OLE_E_ADVISENOTSUPPORTED; }
 };
 
-// Wrap a Gdiplus::Bitmap as an OLE IPicture. The resulting IPicture owns
-// the underlying HBITMAP (fOwn=TRUE); caller must Release() when done.
-// Returns nullptr on failure.
-//
-// NOTE: Kept for reference; no longer used for RichEdit insertion. IPicture
-// does not implement IOleObject, so InsertObject via IPicture fails at the
-// QueryInterface step. The active path (B8+) uses BitmapDataObject above
-// plus OleCreateStaticFromData instead.
-static IPicture* CreatePictureFromBitmap(Gdiplus::Bitmap& bmp) {
-    HBITMAP hbmp = nullptr;
-    if (bmp.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hbmp) != Gdiplus::Ok || !hbmp)
-        return nullptr;
-
-    PICTDESC pd{};
-    pd.cbSizeofstruct = sizeof(pd);
-    pd.picType        = PICTYPE_BITMAP;
-    pd.bmp.hbitmap    = hbmp;
-    pd.bmp.hpal       = nullptr;
-
-    IPicture* pic = nullptr;
-    HRESULT hr = OleCreatePictureIndirect(&pd, IID_IPicture, TRUE,
-                                          reinterpret_cast<void**>(&pic));
-    if (FAILED(hr) || !pic) {
-        DeleteObject(hbmp);
-        return nullptr;
-    }
-    return pic;
-}
-
 bool Editor::InsertImageAt(int start, int end,
                            const std::vector<uint8_t>& imageBytes,
                            int widthPx, int heightPx) {
@@ -917,14 +888,16 @@ bool Editor::InsertImageAt(int start, int end,
         return false;
     }
 
-    IPicture* picture = CreatePictureFromBitmap(bmp);
-    if (!picture) {
-        RichEditLog(L"[WhatsUp] InsertImageAt: OleCreatePictureIndirect failed");
+    // Extract HBITMAP out of the GDI+ bitmap — ownership moves to the
+    // BitmapDataObject below (DeleteObject in its destructor).
+    HBITMAP hbmp = nullptr;
+    if (bmp.GetHBITMAP(Gdiplus::Color(0, 0, 0, 0), &hbmp) != Gdiplus::Ok || !hbmp) {
+        RichEditLog(L"[WhatsUp] InsertImageAt: GetHBITMAP failed");
         return false;
     }
 
     wchar_t buf[160];
-    swprintf_s(buf, L"[WhatsUp] InsertImageAt: IPicture ready %ux%u (bytes=%zu, range=%d..%d, hint=%dx%d)",
+    swprintf_s(buf, L"[WhatsUp] InsertImageAt: HBITMAP ready %ux%u (bytes=%zu, range=%d..%d, hint=%dx%d)",
                intrinsicW, intrinsicH, imageBytes.size(), start, end, widthPx, heightPx);
     RichEditLog(buf);
 
@@ -935,23 +908,13 @@ bool Editor::InsertImageAt(int start, int end,
                           : L"[WhatsUp] InsertImageAt: EM_GETOLEINTERFACE failed");
         if (site)  site->Release();
         if (reole) reole->Release();
-        picture->Release();
+        DeleteObject(hbmp);
         return false;
     }
     RichEditLog(L"[WhatsUp] InsertImageAt: IRichEditOle + IOleClientSite acquired");
 
-    // IPicture implements IOleObject directly; query for it so we can hand
-    // the same object to InsertObject. No separate static-copy step needed.
-    IOleObject* oleobj = nullptr;
-    if (FAILED(picture->QueryInterface(IID_IOleObject,
-                                       reinterpret_cast<void**>(&oleobj))) || !oleobj) {
-        RichEditLog(L"[WhatsUp] InsertImageAt: IPicture->IOleObject QI failed");
-        site->Release(); reole->Release(); picture->Release();
-        return false;
-    }
-
-    // Memory-backed storage — InsertObject requires an IStorage even when the
-    // object doesn't persist state.
+    // Memory-backed storage — InsertObject requires an IStorage even when
+    // the object doesn't persist state.
     ILockBytes* lockBytes = nullptr;
     IStorage*   storage   = nullptr;
     HRESULT hrLb = CreateILockBytesOnHGlobal(nullptr, TRUE, &lockBytes);
@@ -965,23 +928,50 @@ bool Editor::InsertImageAt(int start, int end,
     if (!storage) {
         RichEditLog(L"[WhatsUp] InsertImageAt: IStorage creation failed");
         if (lockBytes) lockBytes->Release();
-        oleobj->Release();
-        site->Release(); reole->Release(); picture->Release();
+        site->Release(); reole->Release();
+        DeleteObject(hbmp);
         return false;
     }
 
-    oleobj->SetClientSite(site);
+    // Hand the HBITMAP to a BitmapDataObject (it now owns the HBITMAP), then
+    // turn that data object into a static IOleObject suitable for InsertObject.
+    auto* dataObj = new (std::nothrow) BitmapDataObject(hbmp);
+    if (!dataObj) {
+        RichEditLog(L"[WhatsUp] InsertImageAt: BitmapDataObject alloc failed");
+        storage->Release();
+        if (lockBytes) lockBytes->Release();
+        site->Release(); reole->Release();
+        DeleteObject(hbmp);
+        return false;
+    }
+
+    FORMATETC fmt{ CF_DIB, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    IOleObject* oleobj = nullptr;
+    HRESULT hrOle = OleCreateStaticFromData(
+        dataObj, IID_IOleObject, OLERENDER_DRAW, &fmt,
+        site, storage, reinterpret_cast<void**>(&oleobj));
+    dataObj->Release();  // OleCreateStaticFromData took its own reference.
+
+    if (FAILED(hrOle) || !oleobj) {
+        wchar_t err[96];
+        swprintf_s(err, L"[WhatsUp] InsertImageAt: OleCreateStaticFromData failed hr=0x%08lX",
+                   (unsigned long)hrOle);
+        RichEditLog(err);
+        storage->Release();
+        if (lockBytes) lockBytes->Release();
+        site->Release(); reole->Release();
+        return false;
+    }
+
     OleSetContainedObject(oleobj, TRUE);
 
-    // Query the picture for its intrinsic HIMETRIC size and apply any caller
+    // Size: start with intrinsic (GDI+ width/height) and apply any caller
     // override. 1 HIMETRIC = 0.01 mm; at 96 DPI, 1 px ≈ 26.458 HIMETRIC.
-    OLE_XSIZE_HIMETRIC himW = 0; OLE_YSIZE_HIMETRIC himH = 0;
-    picture->get_Width(&himW);
-    picture->get_Height(&himH);
     auto pxToHimetric = [](int px) -> long {
         return static_cast<long>(px * 2540.0 / 96.0);
     };
-    SIZEL sz{ himW, himH };
+    SIZEL sz{ pxToHimetric(static_cast<int>(intrinsicW)),
+              pxToHimetric(static_cast<int>(intrinsicH)) };
     if (widthPx  > 0) sz.cx = pxToHimetric(widthPx);
     if (heightPx > 0) sz.cy = pxToHimetric(heightPx);
 
@@ -1001,12 +991,11 @@ bool Editor::InsertImageAt(int start, int end,
     SetSel(start, end);
     HRESULT hrIns = reole->InsertObject(&reobj);
 
+    oleobj->Release();
     storage->Release();
     if (lockBytes) lockBytes->Release();
-    oleobj->Release();
     site->Release();
     reole->Release();
-    picture->Release();
 
     if (FAILED(hrIns)) {
         wchar_t err[96];
