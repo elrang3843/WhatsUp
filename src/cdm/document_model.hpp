@@ -314,6 +314,14 @@ struct Document {
     std::vector<SectionPtr>      sections;
 };
 
+// Returns pointer to the resource with matching id, or nullptr if absent.
+// O(N) on resources; callers hitting this in a hot path should cache.
+inline const Resource* FindResource(const Document& doc, ResourceId id) {
+    for (const auto& r : doc.resources)
+        if (r.id == id) return &r;
+    return nullptr;
+}
+
 // ---- Factory helpers ----
 class NodeIdGenerator { NodeId current_ = 0; public: NodeId Next() { return ++current_; } };
 
