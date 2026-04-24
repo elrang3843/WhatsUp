@@ -324,6 +324,40 @@ struct CdmLoader {
                     charRuns.push_back(cr);
                 }
             }
+            else if constexpr (std::is_same_v<T, cdm::NoteRef>) {
+                int s = richPos;
+                AppendWStr(v.type == cdm::NoteType::Endnote ? L"[미주" : L"[각주");
+                if (!v.noteId.empty()) {
+                    AppendWStr(L":");
+                    std::wstring ws(v.noteId.begin(), v.noteId.end());
+                    AppendWStr(ws);
+                }
+                AppendWStr(L"]");
+                if (s < richPos) {
+                    CharRun cr{}; cr.start = s; cr.end = richPos;
+                    cr.fmt.italic    = 1;
+                    cr.fmt.textColor = RGB(0x60, 0x60, 0xA0);
+                    charRuns.push_back(cr);
+                }
+            }
+            else if constexpr (std::is_same_v<T, cdm::BookmarkStart>) {
+                int s = richPos;
+                AppendWStr(L"⟨");  // ⟨
+                if (s < richPos) {
+                    CharRun cr{}; cr.start = s; cr.end = richPos;
+                    cr.fmt.textColor = RGB(0xA0, 0xA0, 0xA0);
+                    charRuns.push_back(cr);
+                }
+            }
+            else if constexpr (std::is_same_v<T, cdm::BookmarkEnd>) {
+                int s = richPos;
+                AppendWStr(L"⟩");  // ⟩
+                if (s < richPos) {
+                    CharRun cr{}; cr.start = s; cr.end = richPos;
+                    cr.fmt.textColor = RGB(0xA0, 0xA0, 0xA0);
+                    charRuns.push_back(cr);
+                }
+            }
         }, inl.value);
     }
 
