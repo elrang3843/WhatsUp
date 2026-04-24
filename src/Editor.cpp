@@ -676,6 +676,27 @@ void Editor::InsertTable(int rows, int cols, bool header, int widthPct) {
     InsertText(tbl.str());
 }
 
+// Retrieve the RichEdit control's IRichEditOle interface. Caller owns the
+// returned pointer and must Release() it. Returns nullptr if the control
+// does not expose the interface (riched20 stubs return 0 via EM_GETOLEINTERFACE
+// when the control is still empty, so call sites should cope with nullptr).
+static IRichEditOle* QueryRichEditOle(HWND hwnd) {
+    if (!hwnd) return nullptr;
+    IRichEditOle* reole = nullptr;
+    LRESULT got = SendMessageW(hwnd, EM_GETOLEINTERFACE, 0,
+                               reinterpret_cast<LPARAM>(&reole));
+    if (!got || !reole) return nullptr;
+    return reole;
+}
+
+// Pull an IOleClientSite out of the given IRichEditOle. Caller Release()s.
+static IOleClientSite* QueryOleClientSite(IRichEditOle* reole) {
+    if (!reole) return nullptr;
+    IOleClientSite* site = nullptr;
+    if (FAILED(reole->GetClientSite(&site)) || !site) return nullptr;
+    return site;
+}
+
 // Wrap a Gdiplus::Bitmap as an OLE IPicture. The resulting IPicture owns
 // the underlying HBITMAP (fOwn=TRUE); caller must Release() when done.
 // Returns nullptr on failure.
@@ -744,8 +765,21 @@ bool Editor::InsertImageAt(int start, int end,
                intrinsicW, intrinsicH, imageBytes.size(), start, end, widthPx, heightPx);
     RichEditLog(buf);
 
-    // B5c-2/B5c-3 will attach the IPicture to an IOleClientSite and insert
-    // it into the RichEdit control via IRichEditOle::InsertObject.
+    IRichEditOle*   reole = QueryRichEditOle(m_hwnd);
+    IOleClientSite* site  = QueryOleClientSite(reole);
+    if (!reole || !site) {
+        RichEditLog(reole ? L"[WhatsUp] InsertImageAt: GetClientSite failed"
+                          : L"[WhatsUp] InsertImageAt: EM_GETOLEINTERFACE failed");
+        if (site)  site->Release();
+        if (reole) reole->Release();
+        picture->Release();
+        return false;
+    }
+    RichEditLog(L"[WhatsUp] InsertImageAt: IRichEditOle + IOleClientSite acquired");
+
+    // B5c-3 will construct the IStorage + REOBJECT and call reole->InsertObject.
+    site->Release();
+    reole->Release();
     picture->Release();
     return false;
 }
