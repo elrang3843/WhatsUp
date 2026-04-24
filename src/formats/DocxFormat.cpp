@@ -267,11 +267,13 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(
         tblRows.clear();
     };
 
-    // Scan forward from pos to find a drawing's alt text and return new pos
-    auto extractDrawing = [&](size_t startPos) -> std::pair<std::string, size_t> {
+    // Drawing extraction result: alt text, relationship id of the embedded
+    // image (r:embed="rIdN"), and the position just past </w:drawing>.
+    struct DrawingInfo { std::string altText; std::wstring relId; size_t newPos; };
+    auto extractDrawing = [&](size_t startPos) -> DrawingInfo {
         static const std::wstring kEnd = L"</w:drawing>";
         size_t endPos = xml.find(kEnd, startPos);
-        if (endPos == std::wstring::npos) return {{}, xml.size()};
+        if (endPos == std::wstring::npos) return {{}, {}, xml.size()};
         std::wstring chunk = xml.substr(startPos, endPos - startPos);
         std::string altText;
         size_t dp = chunk.find(L"docPr");
@@ -289,7 +291,19 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(
                 }
             }
         }
-        return {altText, endPos + kEnd.size()};
+        std::wstring relId;
+        // <a:blip r:embed="rIdN"/> — first occurrence wins (primary image).
+        size_t bp = chunk.find(L"a:blip");
+        if (bp != std::wstring::npos) {
+            std::wstring key = L"r:embed=\"";
+            size_t rp = chunk.find(key, bp);
+            if (rp != std::wstring::npos) {
+                rp += key.size();
+                size_t re = chunk.find(L'"', rp);
+                if (re != std::wstring::npos) relId = chunk.substr(rp, re - rp);
+            }
+        }
+        return {altText, relId, endPos + kEnd.size()};
     };
 
     size_t pos = 0;
@@ -387,8 +401,10 @@ cdm::Document DocxFormat::ParseDocumentXmlToCdm(
             else { ensureParaOpen(); b.AddTab(); }
         }
         else if (nm == L"w:drawing" && !isE) {
-            auto [altText, newPos] = extractDrawing(pos);
-            pos = newPos;
+            DrawingInfo di = extractDrawing(pos);
+            pos = di.newPos;
+            const std::string& altText = di.altText;
+            (void)di.relId;  // consumed by B2b
             ++drawingCount;
             cdm::ResourceId resId = static_cast<cdm::ResourceId>(drawingCount);
             if (inCell) {
