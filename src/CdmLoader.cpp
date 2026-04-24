@@ -83,6 +83,27 @@ struct CdmLoader {
                 ProcessBlockQuote(v);
             else if constexpr (std::is_same_v<T, cdm::ListBlock>)
                 ProcessList(v);
+            else if constexpr (std::is_same_v<T, cdm::SectionBreakBlock>) {
+                int s = richPos;
+                AppendWStr(L"════════════════════════════");
+                AppendParaMark();
+                CharRun cr{}; cr.start = s; cr.end = richPos - 1;
+                cr.fmt.textColor = RGB(0xA0, 0xA0, 0xA0);
+                charRuns.push_back(cr);
+            }
+            else if constexpr (std::is_same_v<T, cdm::RawBlock>) {
+                int s = richPos;
+                AppendWStr(L"[원본 블록]");
+                AppendParaMark();
+                CharRun cr{}; cr.start = s; cr.end = richPos - 1;
+                cr.fmt.italic    = 1;
+                cr.fmt.textColor = RGB(0x80, 0x80, 0x80);
+                charRuns.push_back(cr);
+            }
+            else if constexpr (std::is_same_v<T, cdm::CustomBlock>) {
+                for (auto& child : v.blocks)
+                    if (child) ProcessBlock(*child);
+            }
         }, blk.value);
     }
 
